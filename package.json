@@ -60,7 +60,7 @@
     "eventemitter3": "^5.0.1",
     "prom-client": "^14.2.0",
     "jaeger-client": "^3.19.0",
-    "opentelemetry-api": "^1.4.1",
+    "@opentelemetry/api": "^1.4.1",
     "@opentelemetry/auto-instrumentations-node": "^0.38.0",
     "node-cache": "^5.1.2",
     "lru-cache": "^10.0.1",
@@ -85,10 +85,13 @@
     "lint-staged": "^13.2.3"
   },
   "peerDependencies": {
-    "faiss-node": "^0.5.0",
-    "scann": "^1.2.6",
-    "cupy": "^11.0.0",
-    "cuda-toolkit": "^12.3.0"
+    "faiss-node": "^0.5.0"
+  },
+  "peerDependenciesMeta": {
+    "faiss-node": { "optional": true },
+    "scann": { "optional": true },
+    "cupy": { "optional": true },
+    "cuda-toolkit": { "optional": true }
   },
   "optionalDependencies": {
     "nvidia-ml-py": "^12.535.77",
@@ -116,7 +119,11 @@
     ],
     "setupFilesAfterEnv": [
       "<rootDir>/tests/setup.js"
-    ]
+    ],
+    "moduleNameMapper": {
+      "^faiss-node$": "<rootDir>/tests/__mocks__/faiss-node.js",
+      "^nvidia-ml-py$": "<rootDir>/tests/__mocks__/nvidia-ml-py.js"
+    }
   },
   "husky": {
     "hooks": {
