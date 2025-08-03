@@ -1,0 +1,158 @@
+{
+  "name": "GH200-Retrieval-Router Development",
+  "image": "nvcr.io/nvidia/cuda:12.3-devel-ubuntu22.04",
+  "runArgs": [
+    "--gpus=all",
+    "--shm-size=2g",
+    "--ulimit", "memlock=-1",
+    "--ulimit", "stack=67108864",
+    "--privileged"
+  ],
+  "containerEnv": {
+    "NVIDIA_VISIBLE_DEVICES": "all",
+    "NVIDIA_DRIVER_CAPABILITIES": "compute,utility",
+    "CUDA_VISIBLE_DEVICES": "all",
+    "NODE_ENV": "development",
+    "LOG_LEVEL": "debug",
+    "MOCK_GRACE_HOPPER": "true",
+    "GRACE_MEMORY_SIZE": "480GB",
+    "NVLINK_BANDWIDTH": "900"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "18",
+      "nodeGypDependencies": true
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.10",
+      "installTools": true
+    },
+    "ghcr.io/devcontainers/features/git:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "version": "latest"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "postStartCommand": "bash .devcontainer/post-start.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.vscode-node-azure-pack",
+        "ms-python.python",
+        "ms-python.pylint",
+        "ms-python.black-formatter",
+        "esbenp.prettier-vscode",
+        "dbaeumer.vscode-eslint",
+        "ms-vscode.vscode-json",
+        "redhat.vscode-yaml",
+        "ms-vscode.vscode-docker",
+        "nvidia.nsight-vscode-edition",
+        "ms-vscode.cpptools",
+        "twxs.cmake",
+        "ms-vscode.cmake-tools",
+        "github.copilot",
+        "github.copilot-chat",
+        "gruntfuggly.todo-tree",
+        "aaron-bond.better-comments",
+        "wayou.vscode-todo-highlight",
+        "bradlc.vscode-tailwindcss",
+        "formulahendry.auto-rename-tag",
+        "christian-kohler.path-intellisense"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": true,
+        "python.formatting.provider": "black",
+        "eslint.alwaysShowStatus": true,
+        "prettier.requireConfig": true,
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": true
+        },
+        "files.associations": {
+          "*.cu": "cuda-cpp",
+          "*.cuh": "cuda-cpp"
+        },
+        "C_Cpp.default.compilerPath": "/usr/local/cuda/bin/nvcc",
+        "C_Cpp.default.includePath": [
+          "/usr/local/cuda/include",
+          "/usr/local/cuda/targets/x86_64-linux/include"
+        ],
+        "cmake.configureOnOpen": false,
+        "todo-tree.general.tags": [
+          "BUG",
+          "HACK",
+          "FIXME",
+          "TODO",
+          "XXX",
+          "PERFORMANCE",
+          "GRACE",
+          "NVLINK"
+        ],
+        "todo-tree.highlights.customHighlight": {
+          "PERFORMANCE": {
+            "icon": "zap",
+            "foreground": "yellow"
+          },
+          "GRACE": {
+            "icon": "cpu",
+            "foreground": "green"
+          },
+          "NVLINK": {
+            "icon": "link",
+            "foreground": "blue"
+          }
+        }
+      }
+    }
+  },
+  "mounts": [
+    "source=${localWorkspaceFolder}/.devcontainer/cuda-cache,target=/usr/local/cuda-cache,type=bind",
+    "source=${localWorkspaceFolder}/data,target=/workspace/data,type=bind"
+  ],
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "forwardPorts": [
+    8080,
+    9090,
+    3000,
+    5432,
+    6379,
+    14268
+  ],
+  "portsAttributes": {
+    "8080": {
+      "label": "GH200 Router API",
+      "onAutoForward": "notify"
+    },
+    "9090": {
+      "label": "Prometheus Metrics",
+      "onAutoForward": "silent"
+    },
+    "3000": {
+      "label": "Development Server",
+      "onAutoForward": "openBrowser"
+    },
+    "5432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "silent"
+    },
+    "6379": {
+      "label": "Redis",
+      "onAutoForward": "silent"
+    },
+    "14268": {
+      "label": "Jaeger Tracing",
+      "onAutoForward": "silent"
+    }
+  },
+  "otherPortsAttributes": {
+    "onAutoForward": "silent"
+  },
+  "remoteUser": "vscode",
+  "userEnvProbe": "loginInteractiveShell"
+}
