@@ -1,0 +1,141 @@
+{
+  "name": "gh200-retrieval-router",
+  "version": "0.1.0",
+  "description": "High-bandwidth retrieval-augmented inference engine optimized for NVIDIA GH200 Grace Hopper Superchip NVL32 nodes",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src/ --ext .js",
+    "lint:fix": "eslint src/ --ext .js --fix",
+    "format": "prettier --write src/**/*.js",
+    "build": "echo 'Build process for production deployment'",
+    "benchmark": "node scripts/benchmark.js",
+    "profile": "node --prof src/index.js",
+    "health": "node scripts/health-check.js"
+  },
+  "keywords": [
+    "grace-hopper",
+    "gh200",
+    "retrieval-augmented-generation",
+    "rag",
+    "vector-database",
+    "nvlink",
+    "faiss",
+    "scann",
+    "rapids",
+    "unified-memory",
+    "high-performance",
+    "gpu-acceleration"
+  ],
+  "author": "Terragon Labs",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/terragon-labs/gh200-retrieval-router"
+  },
+  "bugs": {
+    "url": "https://github.com/terragon-labs/gh200-retrieval-router/issues"
+  },
+  "homepage": "https://github.com/terragon-labs/gh200-retrieval-router#readme",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "dependencies": {
+    "winston": "^3.8.2",
+    "joi": "^17.9.2",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "compression": "^1.7.4",
+    "express-rate-limit": "^6.7.0",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.0",
+    "lodash": "^4.17.21",
+    "async": "^3.2.4",
+    "eventemitter3": "^5.0.1",
+    "prom-client": "^14.2.0",
+    "jaeger-client": "^3.19.0",
+    "opentelemetry-api": "^1.4.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.38.0",
+    "node-cache": "^5.1.2",
+    "lru-cache": "^10.0.1",
+    "redis": "^4.6.7",
+    "ioredis": "^5.3.2"
+  },
+  "devDependencies": {
+    "jest": "^29.5.0",
+    "supertest": "^6.3.3",
+    "eslint": "^8.43.0",
+    "eslint-config-standard": "^17.1.0",
+    "eslint-plugin-import": "^2.27.5",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-promise": "^6.1.1",
+    "prettier": "^2.8.8",
+    "nodemon": "^3.0.1",
+    "benchmark": "^2.1.4",
+    "clinic": "^12.1.0",
+    "0x": "^5.5.0",
+    "nyc": "^15.1.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^13.2.3"
+  },
+  "peerDependencies": {
+    "faiss-node": "^0.5.0",
+    "scann": "^1.2.6",
+    "cupy": "^11.0.0",
+    "cuda-toolkit": "^12.3.0"
+  },
+  "optionalDependencies": {
+    "nvidia-ml-py": "^12.535.77",
+    "nvml-py": "^11.515.75"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "coverageDirectory": "coverage",
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/**/*.test.js",
+      "!src/config/**"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 80,
+        "functions": 80,
+        "lines": 80,
+        "statements": 80
+      }
+    },
+    "testMatch": [
+      "**/tests/**/*.test.js",
+      "**/__tests__/**/*.js"
+    ],
+    "setupFilesAfterEnv": [
+      "<rootDir>/tests/setup.js"
+    ]
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged",
+      "pre-push": "npm test"
+    }
+  },
+  "lint-staged": {
+    "*.js": [
+      "eslint --fix",
+      "prettier --write",
+      "git add"
+    ]
+  },
+  "files": [
+    "src/",
+    "docs/",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ]
+}
