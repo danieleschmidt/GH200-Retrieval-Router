@@ -1,0 +1,421 @@
+/**
+ * RetrievalRouter - Core routing engine for GH200 Grace Hopper optimization
+ * Handles intelligent query routing, load balancing, and semantic search
+ */
+
+const EventEmitter = require('events');
+const { SemanticRouter } = require('./SemanticRouter');
+const { QueryOptimizer } = require('./QueryOptimizer');
+const { LoadBalancer } = require('./LoadBalancer');
+const { PerformanceMonitor } = require('../monitoring/PerformanceMonitor');
+const { logger } = require('../utils/logger');
+const { validateQuery, validateConfig } = require('../utils/validators');
+
+class RetrievalRouter extends EventEmitter {
+    constructor(options = {}) {
+        super();
+        
+        this.config = options.config || {};
+        this.memoryManager = options.memoryManager;
+        this.shardManager = options.shardManager;
+        
+        // Core components
+        this.semanticRouter = null;
+        this.queryOptimizer = null;
+        this.loadBalancer = null;
+        this.performanceMonitor = null;
+        
+        // State
+        this.initialized = false;
+        this.databases = new Map();
+        this.activeConnections = new Set();
+        
+        // Performance tracking
+        this.stats = {
+            totalQueries: 0,
+            successfulQueries: 0,
+            failedQueries: 0,
+            averageLatency: 0,
+            throughput: 0
+        };
+        
+        validateConfig(this.config);
+    }
+    
+    /**
+     * Initialize the retrieval router
+     */
+    async initialize() {
+        if (this.initialized) {
+            throw new Error('Router already initialized');
+        }
+        
+        logger.info('Initializing RetrievalRouter components');
+        
+        try {
+            // Initialize semantic router
+            this.semanticRouter = new SemanticRouter({
+                embeddingModel: this.config.embedding.model,
+                similarity: this.config.embedding.similarity,
+                graceMemory: this.memoryManager
+            });
+            await this.semanticRouter.initialize();
+            
+            // Initialize query optimizer
+            this.queryOptimizer = new QueryOptimizer({
+                cacheSize: this.config.optimization.cacheSize,
+                memoryManager: this.memoryManager
+            });
+            await this.queryOptimizer.initialize();
+            
+            // Initialize load balancer
+            this.loadBalancer = new LoadBalancer({
+                strategy: this.config.loadBalancing.strategy,
+                shardManager: this.shardManager
+            });
+            await this.loadBalancer.initialize();
+            
+            // Initialize performance monitor
+            this.performanceMonitor = new PerformanceMonitor({
+                metricsInterval: this.config.monitoring.interval,
+                router: this
+            });
+            await this.performanceMonitor.start();
+            
+            this.initialized = true;
+            this.emit('initialized');
+            
+            logger.info('RetrievalRouter initialization complete');
+            
+        } catch (error) {
+            logger.error('RetrievalRouter initialization failed', { error: error.message });
+            throw error;
+        }
+    }
+    
+    /**
+     * Add a vector database to the router
+     * @param {VectorDatabase} database - Vector database instance
+     * @param {string} name - Database identifier
+     */
+    async addDatabase(database, name) {
+        if (!this.initialized) {
+            throw new Error('Router not initialized');
+        }
+        
+        if (this.databases.has(name)) {
+            throw new Error(`Database '${name}' already exists`);
+        }
+        
+        logger.info(`Adding database '${name}' to router`);
+        
+        try {
+            await database.initialize();
+            this.databases.set(name, database);
+            
+            // Register database with shard manager
+            await this.shardManager.registerDatabase(name, database);
+            
+            this.emit('databaseAdded', { name, database });
+            
+            logger.info(`Database '${name}' added successfully`, {
+                vectorCount: database.getVectorCount(),
+                dimensions: database.getDimensions()
+            });
+            
+        } catch (error) {
+            logger.error(`Failed to add database '${name}'`, { error: error.message });
+            throw error;
+        }
+    }
+    
+    /**
+     * Perform retrieval with generation
+     * @param {Object} options - Query options
+     * @returns {Promise<Object>} Results with retrieved documents and generated response
+     */
+    async retrieveAndGenerate(options = {}) {
+        const startTime = Date.now();
+        const queryId = this._generateQueryId();
+        
+        try {
+            validateQuery(options);
+            
+            const { query, k = 10, model, temperature = 0.7, database } = options;
+            
+            logger.debug('Processing retrieve and generate request', {
+                queryId,
+                query: query.substring(0, 100),
+                k,
+                model,
+                database
+            });
+            
+            // Step 1: Optimize query
+            const optimizedQuery = await this.queryOptimizer.optimize(query, {
+                k,
+                database,
+                cacheKey: this._generateCacheKey(query, options)
+            });
+            
+            // Step 2: Route to appropriate shards
+            const targetShards = await this.semanticRouter.route(optimizedQuery.embedding, {
+                database,
+                k: Math.ceil(k * 1.5) // Retrieve more for better quality
+            });
+            
+            // Step 3: Perform retrieval
+            const retrievalResults = await this._performRetrieval({
+                embedding: optimizedQuery.embedding,
+                shards: targetShards,
+                k,
+                database
+            });
+            
+            // Step 4: Generate response
+            const generationResult = await this._performGeneration({
+                query: optimizedQuery.text,
+                context: retrievalResults.documents,
+                model,
+                temperature
+            });
+            
+            const latency = Date.now() - startTime;
+            
+            // Update statistics
+            this._updateStats({
+                queryId,
+                latency,
+                success: true,
+                retrievedCount: retrievalResults.documents.length
+            });
+            
+            const result = {
+                queryId,
+                response: generationResult.text,
+                documents: retrievalResults.documents,
+                metadata: {
+                    latency,
+                    retrievedCount: retrievalResults.documents.length,
+                    shardsQueried: targetShards.length,
+                    cacheHit: optimizedQuery.fromCache
+                }
+            };
+            
+            this.emit('queryCompleted', result);
+            
+            return result;
+            
+        } catch (error) {
+            const latency = Date.now() - startTime;
+            
+            this._updateStats({
+                queryId,
+                latency,
+                success: false,
+                error: error.message
+            });
+            
+            logger.error('Retrieve and generate failed', {
+                queryId,
+                error: error.message,
+                latency
+            });
+            
+            this.emit('queryFailed', { queryId, error, latency });
+            
+            throw error;
+        }
+    }
+    
+    /**
+     * Perform retrieval only (no generation)
+     * @param {Object} options - Query options
+     * @returns {Promise<Object>} Retrieved documents
+     */
+    async retrieve(options = {}) {
+        const { query, k = 10, database } = options;
+        
+        validateQuery({ query, k });
+        
+        const optimizedQuery = await this.queryOptimizer.optimize(query, { k, database });
+        const targetShards = await this.semanticRouter.route(optimizedQuery.embedding, { database, k });
+        
+        return await this._performRetrieval({
+            embedding: optimizedQuery.embedding,
+            shards: targetShards,
+            k,
+            database
+        });
+    }
+    
+    /**
+     * Internal method to perform retrieval across shards
+     */
+    async _performRetrieval({ embedding, shards, k, database }) {
+        const retrievalPromises = shards.map(async (shard) => {
+            const db = database ? this.databases.get(database) : Array.from(this.databases.values())[0];
+            
+            if (!db) {
+                throw new Error('No database available for retrieval');
+            }
+            
+            return await db.search({
+                embedding,
+                k: Math.ceil(k / shards.length * 1.2),
+                shardId: shard.id,
+                filters: shard.filters
+            });
+        });
+        
+        const shardResults = await Promise.all(retrievalPromises);
+        
+        // Merge and rank results
+        const allDocuments = shardResults.flat();
+        const sortedDocuments = allDocuments
+            .sort((a, b) => b.score - a.score)
+            .slice(0, k);
+        
+        return {
+            documents: sortedDocuments,
+            shardsQueried: shards.length,
+            totalResults: allDocuments.length
+        };
+    }
+    
+    /**
+     * Internal method to perform text generation
+     */
+    async _performGeneration({ query, context, model, temperature }) {
+        // Placeholder for generation - would integrate with actual LLM
+        const contextText = context.map(doc => doc.content).join('\n\n');
+        
+        // This would be replaced with actual LLM integration
+        return {
+            text: `Based on the context provided, here is a response to: ${query}\n\nContext summary: Found ${context.length} relevant documents.`,
+            model,
+            temperature,
+            tokensGenerated: 50
+        };
+    }
+    
+    /**
+     * Get router statistics
+     */
+    getStats() {
+        return {
+            ...this.stats,
+            activeDatabases: this.databases.size,
+            activeConnections: this.activeConnections.size,
+            uptime: process.uptime()
+        };
+    }
+    
+    /**
+     * Get database by name
+     */
+    getDatabase(name) {
+        return this.databases.get(name);
+    }
+    
+    /**
+     * List all registered databases
+     */
+    listDatabases() {
+        return Array.from(this.databases.keys());
+    }
+    
+    /**
+     * Update performance statistics
+     */
+    _updateStats({ queryId, latency, success, retrievedCount, error }) {
+        this.stats.totalQueries++;
+        
+        if (success) {
+            this.stats.successfulQueries++;
+            this.stats.averageLatency = (
+                (this.stats.averageLatency * (this.stats.successfulQueries - 1) + latency) /
+                this.stats.successfulQueries
+            );
+        } else {
+            this.stats.failedQueries++;
+        }
+        
+        // Calculate throughput (queries per second)
+        this.stats.throughput = this.stats.totalQueries / (process.uptime() || 1);
+    }
+    
+    /**
+     * Generate unique query ID
+     */
+    _generateQueryId() {
+        return `query_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+    
+    /**
+     * Generate cache key for query
+     */
+    _generateCacheKey(query, options) {
+        const keyData = {
+            query: query.trim().toLowerCase(),
+            k: options.k,
+            database: options.database
+        };
+        
+        return require('crypto')
+            .createHash('sha256')
+            .update(JSON.stringify(keyData))
+            .digest('hex')
+            .substring(0, 16);
+    }
+    
+    /**
+     * Gracefully shutdown the router
+     */
+    async shutdown() {
+        if (!this.initialized) {
+            return;
+        }
+        
+        logger.info('Shutting down RetrievalRouter');
+        
+        try {
+            // Stop performance monitoring
+            if (this.performanceMonitor) {
+                await this.performanceMonitor.stop();
+            }
+            
+            // Shutdown components
+            if (this.semanticRouter) {
+                await this.semanticRouter.shutdown();
+            }
+            
+            if (this.queryOptimizer) {
+                await this.queryOptimizer.shutdown();
+            }
+            
+            if (this.loadBalancer) {
+                await this.loadBalancer.shutdown();
+            }
+            
+            // Close database connections
+            for (const [name, database] of this.databases) {
+                await database.shutdown();
+            }
+            
+            this.databases.clear();
+            this.activeConnections.clear();
+            this.initialized = false;
+            
+            this.emit('shutdown');
+            
+            logger.info('RetrievalRouter shutdown complete');
+            
+        } catch (error) {
+            logger.error('Error during RetrievalRouter shutdown', { error: error.message });
+            throw error;
+        }
+    }
+}
+
+module.exports = { RetrievalRouter };
