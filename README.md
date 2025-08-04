@@ -494,7 +494,7 @@ Apache License 2.0 - see [LICENSE](LICENSE) file.
 ```bibtex
 @software{gh200-retrieval-router,
   title={GH200-Retrieval-Router: High-Bandwidth RAG for Grace Hopper Systems},
-  author={Your Name},
+  author={Daniel Schmidt},
   year={2025},
   url={https://github.com/yourusername/GH200-Retrieval-Router}
 }
