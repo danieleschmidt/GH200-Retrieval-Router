@@ -2,7 +2,7 @@
  * Error handling middleware for GH200 Retrieval Router
  */
 
-const logger = require('../utils/logger');
+const { logger } = require('../utils/logger');
 
 /**
  * Application error class
@@ -189,7 +189,7 @@ const asyncHandler = (fn) => {
  * Global uncaught exception handler
  */
 const uncaughtExceptionHandler = (error) => {
-  logger.fatal('Uncaught exception', {
+  logger.error('Uncaught exception', {
     error: {
       name: error.name,
       message: error.message,
@@ -208,7 +208,7 @@ const uncaughtExceptionHandler = (error) => {
  * Global unhandled rejection handler
  */
 const unhandledRejectionHandler = (reason, promise) => {
-  logger.fatal('Unhandled promise rejection', {
+  logger.error('Unhandled promise rejection', {
     reason: reason instanceof Error ? {
       name: reason.name,
       message: reason.message,

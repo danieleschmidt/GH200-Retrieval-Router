@@ -272,6 +272,45 @@ class GraceMemoryManager extends EventEmitter {
     }
     
     /**
+     * Perform health check on memory manager
+     */
+    async healthCheck() {
+        try {
+            const stats = this.getStats();
+            const utilizationRatio = stats.utilizationRatio || 0;
+            const fragmentationRatio = stats.fragmentationRatio || 0;
+            
+            // Consider healthy if utilization is below 90% and fragmentation is low
+            const healthy = utilizationRatio < 0.9 && fragmentationRatio < 0.5;
+            
+            return {
+                healthy,
+                timestamp: new Date().toISOString(),
+                utilizationRatio,
+                fragmentationRatio,
+                totalAllocated: stats.totalAllocated,
+                totalAvailable: stats.totalAvailable,
+                peakUsage: stats.peakUsage,
+                pools: stats.pools
+            };
+        } catch (error) {
+            logger.error('Health check failed', { error: error.message });
+            return {
+                healthy: false,
+                timestamp: new Date().toISOString(),
+                error: error.message
+            };
+        }
+    }
+    
+    /**
+     * Check if memory manager is ready for operations
+     */
+    async isReady() {
+        return this.initialized;
+    }
+    
+    /**
      * Perform garbage collection on specified pool
      */
     async _garbageCollect(poolName) {

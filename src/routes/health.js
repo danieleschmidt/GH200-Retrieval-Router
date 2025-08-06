@@ -4,7 +4,7 @@
 
 const express = require('express');
 const router = express.Router();
-const logger = require('../utils/logger');
+const { logger } = require('../utils/logger');
 
 /**
  * Basic health check endpoint
@@ -78,7 +78,7 @@ router.get('/detailed', async (req, res) => {
           status: dbStatus.healthy ? 'healthy' : 'unhealthy',
           details: dbStatus
         };
-        if (!dbStatus.healthy) overallStatus = 'degraded';
+        if (!dbStatus.healthy && overallStatus === 'healthy') overallStatus = 'degraded';
       } catch (error) {
         components.vectorDatabase = {
           status: 'unhealthy',
@@ -96,7 +96,7 @@ router.get('/detailed', async (req, res) => {
           status: memStatus.healthy ? 'healthy' : 'unhealthy',
           details: memStatus
         };
-        if (!memStatus.healthy) overallStatus = 'degraded';
+        if (!memStatus.healthy && overallStatus === 'healthy') overallStatus = 'degraded';
       } catch (error) {
         components.graceMemory = {
           status: 'unhealthy',
@@ -114,7 +114,7 @@ router.get('/detailed', async (req, res) => {
           status: routerStatus.healthy ? 'healthy' : 'unhealthy',
           details: routerStatus
         };
-        if (!routerStatus.healthy) overallStatus = 'degraded';
+        if (!routerStatus.healthy && overallStatus === 'healthy') overallStatus = 'degraded';
       } catch (error) {
         components.retrievalRouter = {
           status: 'unhealthy',
@@ -130,8 +130,7 @@ router.get('/detailed', async (req, res) => {
       components
     };
 
-    const statusCode = overallStatus === 'unhealthy' ? 503 : 
-                      overallStatus === 'degraded' ? 200 : 200;
+    const statusCode = overallStatus === 'unhealthy' ? 503 : 200;
 
     res.status(statusCode).json(response);
   } catch (error) {

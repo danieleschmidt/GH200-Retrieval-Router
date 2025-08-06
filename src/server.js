@@ -8,7 +8,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 
-const logger = require('./utils/logger');
+const { logger } = require('./utils/logger');
 const config = require('./config/default');
 
 // Routes
