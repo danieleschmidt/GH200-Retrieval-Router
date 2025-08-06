@@ -7,7 +7,7 @@ const GraceMemoryManager = require('../../__mocks__/GraceMemoryManager');
 describe('GraceMemoryManager', () => {
   let memoryManager;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     memoryManager = new GraceMemoryManager({
       totalMemoryGB: 480,
       pools: {
@@ -16,6 +16,7 @@ describe('GraceMemoryManager', () => {
         workspace: 80
       }
     });
+    await memoryManager.initialize();
   });
 
   afterEach(() => {

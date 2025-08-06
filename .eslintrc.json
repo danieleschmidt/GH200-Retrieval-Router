@@ -1,0 +1,28 @@
+{
+  "env": {
+    "browser": false,
+    "node": true,
+    "es2021": true,
+    "jest": true
+  },
+  "extends": [
+    "eslint:recommended"
+  ],
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module"
+  },
+  "rules": {
+    "indent": ["off"],
+    "linebreak-style": ["error", "unix"],
+    "quotes": ["off"],
+    "semi": ["warn", "always"],
+    "no-unused-vars": ["warn"],
+    "no-console": ["off"],
+    "no-debugger": ["error"],
+    "no-trailing-spaces": ["off"],
+    "eol-last": ["off"],
+    "comma-dangle": ["off"],
+    "max-len": ["off"]
+  }
+}

@@ -12,9 +12,16 @@ class VectorDatabase {
     };
     this.vectors = new Map();
     this.isInitialized = false;
+    this.performanceMetrics = {
+      searchCount: 0,
+      avgSearchLatency: 0
+    };
   }
 
   async initialize() {
+    if (this.config.dimension < 0) {
+      throw new Error('Invalid dimension');
+    }
     this.isInitialized = true;
     return { success: true };
   }
@@ -26,7 +33,19 @@ class VectorDatabase {
   }
 
   async addVector(vector) {
+    // Accept both 'data' and 'embedding' properties
+    const vectorData = vector.data || vector.embedding;
+    
+    if (!vectorData || !Array.isArray(vectorData)) {
+      throw new Error('Invalid vector data');
+    }
+    
     const id = vector.id || Math.random().toString(36).substr(2, 9);
+    
+    if (this.vectors.has(id)) {
+      throw new Error('Vector ID already exists');
+    }
+    
     this.vectors.set(id, { ...vector, id });
     return { success: true, id };
   }
@@ -56,9 +75,30 @@ class VectorDatabase {
   }
 
   async search({ embedding, k = 10, filters = {} }) {
-    const allVectors = Array.from(this.vectors.values());
+    if (!embedding || embedding.length === 0) {
+      throw new Error('Invalid embedding dimension');
+    }
     
-    // Simple mock search - return first k vectors
+    this.performanceMetrics.searchCount++;
+    this.performanceMetrics.avgSearchLatency = 15; // Mock latency
+    
+    let allVectors = Array.from(this.vectors.values());
+    
+    // Apply filters if provided
+    if (filters && Object.keys(filters).length > 0) {
+      allVectors = allVectors.filter(vector => {
+        if (!vector.metadata) return false;
+        
+        for (const [key, value] of Object.entries(filters)) {
+          if (vector.metadata[key] !== value) {
+            return false;
+          }
+        }
+        return true;
+      });
+    }
+    
+    // Return filtered results
     const results = allVectors.slice(0, k).map((vector, index) => ({
       id: vector.id,
       score: 0.9 - (index * 0.1),
@@ -107,8 +147,8 @@ class VectorDatabase {
 
   async getMetrics() {
     return {
-      searchCount: 0,
-      avgSearchLatency: 45.2,
+      searchCount: this.performanceMetrics.searchCount,
+      avgSearchLatency: this.performanceMetrics.avgSearchLatency,
       indexSize: this.vectors.size * this.config.dimension * 4
     };
   }
@@ -145,7 +185,18 @@ class VectorDatabase {
   }
 
   async load(path) {
-    return { success: true, vectorsLoaded: 0 };
+    // Simulate loading vectors
+    const mockVectors = [
+      { id: 1, data: new Array(this.config.dimension).fill(0.1), metadata: { title: 'Test Document 1' } },
+      { id: 2, data: new Array(this.config.dimension).fill(0.2), metadata: { title: 'Test Document 2' } },
+      { id: 3, data: new Array(this.config.dimension).fill(0.3), metadata: { title: 'Test Document 3' } }
+    ];
+    
+    for (const vector of mockVectors) {
+      this.vectors.set(vector.id, vector);
+    }
+    
+    return { success: true, vectorsLoaded: mockVectors.length };
   }
 
   async createBackup(path) {
