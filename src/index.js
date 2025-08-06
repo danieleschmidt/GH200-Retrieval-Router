@@ -7,6 +7,7 @@ const { RetrievalRouter } = require('./router/RetrievalRouter');
 const { GraceMemoryManager } = require('./memory/GraceMemoryManager');
 const { ShardManager } = require('./sharding/ShardManager');
 const { VectorDatabase } = require('./database/VectorDatabase');
+const { QuantumTaskPlanner, AdaptiveOptimizer } = require('./quantum');
 const { logger } = require('./utils/logger');
 const config = require('./config/default');
 
@@ -18,10 +19,11 @@ const config = require('./config/default');
 async function initializeRouter(options = {}) {
     const mergedConfig = { ...config, ...options };
     
-    logger.info('Initializing GH200-Retrieval-Router', {
+    logger.info('Initializing GH200-Retrieval-Router with Quantum Task Planning', {
         version: require('../package.json').version,
         graceMemoryEnabled: mergedConfig.graceMemory.enabled,
-        nvlinkEnabled: mergedConfig.nvlink.enabled
+        nvlinkEnabled: mergedConfig.nvlink.enabled,
+        quantumPlanningEnabled: mergedConfig.quantumPlanning?.enabled !== false
     });
 
     try {
@@ -33,18 +35,30 @@ async function initializeRouter(options = {}) {
         const shardManager = new ShardManager(mergedConfig.sharding);
         await shardManager.initialize();
         
-        // Create router instance
+        // Initialize quantum task planner
+        const quantumPlanner = new QuantumTaskPlanner(mergedConfig.quantumPlanning);
+        await quantumPlanner.initialize();
+        
+        // Initialize adaptive optimizer
+        const optimizer = new AdaptiveOptimizer(mergedConfig.optimization);
+        await optimizer.initialize();
+        
+        // Create router instance with quantum capabilities
         const router = new RetrievalRouter({
             config: mergedConfig,
             memoryManager,
-            shardManager
+            shardManager,
+            quantumPlanner,
+            optimizer
         });
         
         await router.initialize();
         
-        logger.info('GH200-Retrieval-Router initialized successfully', {
+        logger.info('GH200-Retrieval-Router with Quantum Planning initialized successfully', {
             availableMemory: await memoryManager.getAvailableMemory(),
-            activeShards: shardManager.getActiveShardCount()
+            activeShards: shardManager.getActiveShardCount(),
+            quantumStates: quantumPlanner.getMetrics().activeQuantumStates,
+            optimizerReady: optimizer.isRunning
         });
         
         return router;
@@ -90,5 +104,7 @@ module.exports = {
     RetrievalRouter,
     VectorDatabase,
     GraceMemoryManager,
-    ShardManager
+    ShardManager,
+    QuantumTaskPlanner,
+    AdaptiveOptimizer
 };

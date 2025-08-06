@@ -191,6 +191,34 @@ module.exports = {
         benchmarkMode: false
     },
     
+    // Quantum Task Planning Configuration
+    quantumPlanning: {
+        enabled: true,
+        maxSuperpositionStates: 32,
+        entanglementThreshold: 0.8,
+        coherenceTime: 10000,
+        measurementInterval: 1000,
+        adaptiveLearning: true,
+        
+        // Quantum optimization parameters
+        quantumAnnealing: false,
+        errorCorrection: true,
+        decoherenceThreshold: 0.1
+    },
+    
+    // Adaptive Optimization Configuration
+    optimization: {
+        learningRate: 0.01,
+        adaptationInterval: 5000,
+        memoryWindow: 1000,
+        optimizationThreshold: 0.1,
+        
+        // Self-improvement settings
+        enableSelfTuning: true,
+        performanceBaseline: 'auto',
+        adaptationStrength: 0.3
+    },
+
     // Feature Flags
     features: {
         hybridSearch: true,
@@ -198,6 +226,8 @@ module.exports = {
         adaptiveSharding: true,
         continuousLearning: false,
         federatedRetrieval: false,
+        quantumTaskPlanning: true,
+        adaptiveOptimization: true,
         
         // Experimental features
         quantizedIndices: false,
