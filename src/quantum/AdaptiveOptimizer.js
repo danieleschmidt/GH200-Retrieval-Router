@@ -58,7 +58,7 @@ class AdaptiveOptimizer extends EventEmitter {
 
         this.adaptationRules.set('latency', {
             metric: 'averageLatency',
-            threshold: -0.1,
+            threshold: 0.1, // Positive threshold - adapt when latency increases
             adaptations: [
                 { parameter: 'entanglementThreshold', factor: 1.1 },
                 { parameter: 'measurementInterval', factor: 1.2 },
@@ -86,29 +86,48 @@ class AdaptiveOptimizer extends EventEmitter {
     }
 
     recordExecution(executionData) {
-        if (!executionData || typeof executionData !== 'object') {
-            return;
+        try {
+            // Input validation
+            if (!executionData || typeof executionData !== 'object') {
+                throw new Error('Execution data must be a valid object');
+            }
+            
+            if (!executionData.taskId) {
+                throw new Error('Task ID is required');
+            }
+            
+            if (executionData.duration && (typeof executionData.duration !== 'number' || executionData.duration < 0)) {
+                throw new Error('Duration must be a positive number');
+            }
+            
+            const record = {
+                timestamp: executionData.timestamp || Date.now(),
+                taskId: executionData.taskId,
+                duration: Math.max(0, executionData.duration || 0),
+                resourceUsage: executionData.resourceUsage || {},
+                success: Boolean(executionData.success),
+                error: executionData.error,
+                quantumMetrics: executionData.quantumMetrics || {},
+                optimizationLevel: Math.max(1, executionData.optimizationLevel || 1)
+            };
+            
+            this.executionHistory.push(record);
+            
+            // Maintain memory window
+            if (this.executionHistory.length > this.config.memoryWindow) {
+                this.executionHistory.shift();
+            }
+            
+            this.updatePerformanceMetrics(record);
+            this.emit('executionRecorded', record);
+            
+        } catch (error) {
+            logger.error('Failed to record execution', { 
+                error: error.message,
+                taskId: executionData?.taskId || 'unknown'
+            });
+            // Don't throw - continue operation but log the issue
         }
-        
-        const record = {
-            timestamp: Date.now(),
-            taskId: executionData.taskId || 'unknown',
-            duration: executionData.duration || 0,
-            resourceUsage: executionData.resourceUsage || {},
-            success: executionData.success || false,
-            error: executionData.error,
-            quantumMetrics: executionData.quantumMetrics || {},
-            optimizationLevel: executionData.optimizationLevel || 1
-        };
-        
-        this.executionHistory.push(record);
-        
-        if (this.executionHistory.length > this.config.memoryWindow) {
-            this.executionHistory.shift();
-        }
-        
-        this.updatePerformanceMetrics(record);
-        this.emit('executionRecorded', record);
     }
 
     updatePerformanceMetrics(record) {
@@ -128,7 +147,9 @@ class AdaptiveOptimizer extends EventEmitter {
             adaptiveScore: this.calculateAdaptiveScore(recentExecutions)
         };
         
-        this.performanceMetrics.set(Date.now(), metrics);
+        // Use record timestamp to ensure distinct metrics entries
+        const metricsTimestamp = record.timestamp || Date.now();
+        this.performanceMetrics.set(metricsTimestamp, metrics);
         
         const maxMetrics = 100;
         if (this.performanceMetrics.size > maxMetrics) {
@@ -196,19 +217,19 @@ class AdaptiveOptimizer extends EventEmitter {
     }
 
     async performAdaptation() {
-        if (this.performanceMetrics.size < 2) return;
+        if (this.performanceMetrics.size < 2) return [];
         
         const currentMetrics = this.getCurrentMetrics();
         const previousMetrics = this.getPreviousMetrics();
         
-        if (!currentMetrics || !previousMetrics) return;
+        if (!currentMetrics || !previousMetrics) return [];
         
         const improvementNeeded = this.analyzePerformanceTrends(
             currentMetrics, 
             previousMetrics
         );
         
-        if (Object.keys(improvementNeeded).length === 0) return;
+        if (Object.keys(improvementNeeded).length === 0) return [];
         
         const adaptations = await this.generateAdaptations(improvementNeeded);
         
@@ -216,6 +237,8 @@ class AdaptiveOptimizer extends EventEmitter {
             await this.applyAdaptations(adaptations);
             this.emit('adaptationApplied', adaptations);
         }
+        
+        return adaptations;
     }
 
     getCurrentMetrics() {
@@ -348,17 +371,20 @@ class AdaptiveOptimizer extends EventEmitter {
 
     async getCurrentParameterValue(parameter) {
         const parameterMap = {
-            'maxSuperpositionStates': () => this.config.maxSuperpositionStates,
-            'coherenceTime': () => this.config.coherenceTime,
-            'measurementInterval': () => this.config.measurementInterval,
-            'entanglementThreshold': () => this.config.entanglementThreshold,
-            'learningRate': () => this.config.learningRate,
+            'maxSuperpositionStates': () => this.config.maxSuperpositionStates || 32,
+            'coherenceTime': () => this.config.coherenceTime || 10000,
+            'measurementInterval': () => this.config.measurementInterval || 1000,
+            'entanglementThreshold': () => this.config.entanglementThreshold || 0.8,
+            'learningRate': () => this.config.learningRate || 0.01,
             'memoryPoolSize': () => this.config.memoryPoolSize || 1000,
             'batchSize': () => this.config.batchSize || 32
         };
         
         const getter = parameterMap[parameter];
-        return getter ? getter() : null;
+        const value = getter ? getter() : null;
+        
+        // Ensure numeric values are returned as numbers, not undefined/null
+        return typeof value === 'number' ? value : null;
     }
 
     calculateNewParameterValue(currentValue, factor, parameter) {

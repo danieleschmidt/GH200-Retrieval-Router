@@ -8,11 +8,12 @@ const { format } = winston;
 
 // Log levels with performance implications
 const LOG_LEVELS = {
-    error: 0,
-    warn: 1,
-    info: 2,
-    debug: 3,
-    trace: 4
+    critical: 0,
+    error: 1,
+    warn: 2,
+    info: 3,
+    debug: 4,
+    trace: 5
 };
 
 // Environment-based configuration
@@ -203,6 +204,11 @@ process.on('SIGINT', () => {
     logger.info('Received SIGINT, closing logger');
     logger.end();
 });
+
+// Add critical method to logger
+logger.critical = (message, metadata = {}) => {
+    logger.log('critical', message, metadata);
+};
 
 // Export logger and utilities
 module.exports = {

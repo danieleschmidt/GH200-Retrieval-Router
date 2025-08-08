@@ -11,6 +11,22 @@ class QuantumTaskPlanner extends EventEmitter {
     constructor(options = {}) {
         super();
         
+        // Validate configuration early
+        if (options.maxSuperpositionStates !== undefined && 
+            (options.maxSuperpositionStates < 1 || options.maxSuperpositionStates > 128)) {
+            throw new Error('maxSuperpositionStates must be between 1 and 128');
+        }
+        
+        if (options.entanglementThreshold !== undefined && 
+            (options.entanglementThreshold < 0 || options.entanglementThreshold > 1)) {
+            throw new Error('entanglementThreshold must be between 0 and 1');
+        }
+        
+        if (options.coherenceTime !== undefined && 
+            (options.coherenceTime < 100 || options.coherenceTime > 3600000)) {
+            throw new Error('coherenceTime must be between 100ms and 1 hour');
+        }
+        
         this.config = {
             maxSuperpositionStates: options.maxSuperpositionStates || 32,
             entanglementThreshold: options.entanglementThreshold || 0.8,
@@ -30,53 +46,113 @@ class QuantumTaskPlanner extends EventEmitter {
     async initialize() {
         if (this.isInitialized) return;
         
-        logger.info('Initializing Quantum Task Planner', {
-            maxSuperpositionStates: this.config.maxSuperpositionStates,
-            entanglementThreshold: this.config.entanglementThreshold
-        });
-        
-        this.measurementTimer = setInterval(
-            () => this.performQuantumMeasurement(),
-            this.config.measurementInterval
-        );
-        
-        this.coherenceTimer = setInterval(
-            () => this.maintainCoherence(),
-            this.config.coherenceTime / 4
-        );
-        
-        this.isInitialized = true;
-        this.emit('initialized');
+        try {
+            logger.info('Initializing Quantum Task Planner', {
+                maxSuperpositionStates: this.config.maxSuperpositionStates,
+                entanglementThreshold: this.config.entanglementThreshold
+            });
+            
+            // Validate configuration
+            if (this.config.maxSuperpositionStates < 1 || this.config.maxSuperpositionStates > 128) {
+                throw new Error('maxSuperpositionStates must be between 1 and 128');
+            }
+            
+            if (this.config.entanglementThreshold < 0 || this.config.entanglementThreshold > 1) {
+                throw new Error('entanglementThreshold must be between 0 and 1');
+            }
+            
+            if (this.config.coherenceTime < 100 || this.config.coherenceTime > 3600000) {
+                throw new Error('coherenceTime must be between 100ms and 1 hour');
+            }
+            
+            // Initialize timers with error handling
+            this.measurementTimer = setInterval(() => {
+                this.performQuantumMeasurement().catch(error => {
+                    logger.error('Measurement timer error', { error: error.message });
+                });
+            }, this.config.measurementInterval);
+            
+            this.coherenceTimer = setInterval(() => {
+                try {
+                    this.maintainCoherence();
+                } catch (error) {
+                    logger.error('Coherence maintenance error', { error: error.message });
+                }
+            }, this.config.coherenceTime / 4);
+            
+            this.isInitialized = true;
+            this.emit('initialized');
+            
+            logger.info('Quantum Task Planner initialized successfully');
+            
+        } catch (error) {
+            logger.error('Failed to initialize Quantum Task Planner', { 
+                error: error.message 
+            });
+            this.isInitialized = false;
+            throw error;
+        }
     }
 
     createTask(taskData) {
-        if (!taskData || typeof taskData !== 'object') {
-            taskData = {};
-        }
-        
-        const taskId = uuidv4();
-        const task = {
-            id: taskId,
-            ...taskData,
-            createdAt: Date.now(),
-            status: 'superposition',
-            priority: taskData.priority || 1.0,
-            dependencies: taskData.dependencies || [],
-            quantum: {
-                amplitude: Math.random(),
-                phase: Math.random() * 2 * Math.PI,
-                entangled: false,
-                measurements: 0
+        try {
+            // Input validation
+            if (!taskData || typeof taskData !== 'object') {
+                throw new Error('Task data must be a valid object');
             }
-        };
-        
-        this.taskRegistry.set(taskId, task);
-        this.initializeQuantumState(task);
-        
-        logger.debug('Created quantum task', { taskId, task: task.name });
-        this.emit('taskCreated', task);
-        
-        return task;
+            
+            if (!taskData.name || typeof taskData.name !== 'string') {
+                throw new Error('Task name is required and must be a string');
+            }
+            
+            if (taskData.dependencies && !Array.isArray(taskData.dependencies)) {
+                throw new Error('Task dependencies must be an array');
+            }
+            
+            // Validate priority range
+            if (taskData.priority !== undefined && (taskData.priority < -10 || taskData.priority > 10)) {
+                logger.warn('Task priority out of recommended range [-10, 10], clamping', { 
+                    priority: taskData.priority 
+                });
+                taskData.priority = Math.max(-10, Math.min(10, taskData.priority));
+            }
+            
+            const taskId = uuidv4();
+            const task = {
+                id: taskId,
+                ...taskData,
+                createdAt: Date.now(),
+                status: 'superposition',
+                priority: taskData.priority !== undefined ? taskData.priority : 1.0,
+                dependencies: taskData.dependencies || [],
+                quantum: {
+                    amplitude: Math.random(),
+                    phase: Math.random() * 2 * Math.PI,
+                    entangled: false,
+                    measurements: 0
+                }
+            };
+            
+            // Check for circular dependencies
+            if (this.hasCircularDependency(task)) {
+                throw new Error(`Circular dependency detected for task: ${task.name}`);
+            }
+            
+            this.taskRegistry.set(taskId, task);
+            this.initializeQuantumState(task);
+            
+            logger.debug('Created quantum task', { taskId, task: task.name });
+            this.emit('taskCreated', task);
+            
+            return task;
+            
+        } catch (error) {
+            logger.error('Failed to create quantum task', { 
+                error: error.message, 
+                taskData: taskData?.name || 'unknown' 
+            });
+            throw error;
+        }
     }
 
     initializeQuantumState(task) {
@@ -147,8 +223,30 @@ class QuantumTaskPlanner extends EventEmitter {
     }
 
     evaluateEntanglements(newTask) {
+        // Performance-optimized entanglement evaluation
+        const taskCount = this.taskRegistry.size;
+        const maxEvaluations = Math.min(taskCount, this.getOptimalEvaluationLimit(taskCount));
+        
+        // Use batch processing for large task sets
+        if (taskCount > 1000) {
+            this.batchEvaluateEntanglements(newTask, maxEvaluations);
+        } else {
+            this.standardEvaluateEntanglements(newTask, maxEvaluations);
+        }
+    }
+    
+    getOptimalEvaluationLimit(taskCount) {
+        if (taskCount < 100) return taskCount;
+        if (taskCount < 1000) return 200;
+        return Math.min(500, Math.floor(taskCount * 0.1)); // 10% sampling for large sets
+    }
+    
+    standardEvaluateEntanglements(newTask, maxEvaluations) {
+        let evaluations = 0;
+        
         for (const [existingTaskId, existingTask] of this.taskRegistry) {
             if (existingTaskId === newTask.id) continue;
+            if (evaluations++ >= maxEvaluations) break;
             
             const correlation = this.calculateTaskCorrelation(newTask, existingTask);
             
@@ -157,20 +255,46 @@ class QuantumTaskPlanner extends EventEmitter {
             }
         }
     }
+    
+    batchEvaluateEntanglements(newTask, maxEvaluations) {
+        const tasks = Array.from(this.taskRegistry.values())
+            .filter(task => task.id !== newTask.id);
+        
+        // Sample tasks for performance - prioritize recent and similar tasks
+        const recentTasks = tasks.slice(-200); // Most recent 200 tasks
+        const similarCategoryTasks = tasks.filter(t => 
+            t.category === newTask.category && !recentTasks.includes(t)
+        ).slice(0, 100);
+        
+        const candidateTasks = [...recentTasks, ...similarCategoryTasks]
+            .slice(0, maxEvaluations);
+        
+        for (const existingTask of candidateTasks) {
+            const correlation = this.calculateTaskCorrelation(newTask, existingTask);
+            
+            if (correlation >= this.config.entanglementThreshold) {
+                this.createEntanglement(newTask.id, existingTask.id, correlation);
+            }
+        }
+    }
 
     calculateTaskCorrelation(task1, task2) {
         let correlation = 0;
         
-        if (task1.dependencies.includes(task2.id) || task2.dependencies.includes(task1.id)) {
+        // Ensure dependencies are arrays
+        const deps1 = task1.dependencies || [];
+        const deps2 = task2.dependencies || [];
+        
+        if (deps1.includes(task2.id) || deps2.includes(task1.id)) {
             correlation += 0.4;
         }
         
         if (task1.category === task2.category) {
-            correlation += 0.2;
+            correlation += 0.4; // Higher weight for same category
         }
         
         if (task1.assignee === task2.assignee) {
-            correlation += 0.2;
+            correlation += 0.4; // Higher weight for same assignee  
         }
         
         const resourceOverlap = this.calculateResourceOverlap(task1, task2);
@@ -221,26 +345,70 @@ class QuantumTaskPlanner extends EventEmitter {
             correlation: correlation
         });
         
-        this.emit('entanglementCreated', entanglement);
+        // Emit entanglement event asynchronously to prevent blocking
+        setImmediate(() => this.emit('entanglementCreated', entanglement));
+        
+        return entanglement;
     }
 
     async performQuantumMeasurement() {
         const measurements = [];
+        const errors = [];
         
-        for (const [taskId, state] of this.quantumStates) {
-            if (this.shouldMeasure(state)) {
-                const measurement = await this.measureQuantumState(taskId, state);
-                measurements.push(measurement);
+        try {
+            for (const [taskId, state] of this.quantumStates) {
+                try {
+                    if (this.shouldMeasure(state)) {
+                        const measurement = await this.measureQuantumState(taskId, state);
+                        if (measurement) {
+                            measurements.push(measurement);
+                        }
+                    }
+                } catch (error) {
+                    logger.warn('Failed to measure quantum state', { 
+                        taskId, 
+                        error: error.message 
+                    });
+                    errors.push({ taskId, error: error.message });
+                    
+                    // Attempt recovery for corrupted quantum state
+                    try {
+                        this.reinitializeQuantumState(taskId, state);
+                        logger.info('Recovered quantum state after measurement error', { taskId });
+                    } catch (recoveryError) {
+                        logger.error('Failed to recover quantum state', { 
+                            taskId, 
+                            recoveryError: recoveryError.message 
+                        });
+                    }
+                }
             }
-        }
-        
-        if (measurements.length > 0) {
-            this.measurements.push(...measurements);
-            this.emit('measurementComplete', measurements);
             
-            if (this.config.adaptiveLearning) {
-                await this.adaptFromMeasurements(measurements);
+            if (measurements.length > 0) {
+                this.measurements.push(...measurements);
+                this.emit('measurementComplete', measurements);
+                
+                if (this.config.adaptiveLearning) {
+                    try {
+                        await this.adaptFromMeasurements(measurements);
+                    } catch (adaptationError) {
+                        logger.error('Failed to adapt from measurements', { 
+                            error: adaptationError.message 
+                        });
+                    }
+                }
             }
+            
+            if (errors.length > 0) {
+                this.emit('measurementErrors', errors);
+            }
+            
+        } catch (error) {
+            logger.error('Critical error in quantum measurement process', { 
+                error: error.message 
+            });
+            this.emit('criticalError', error);
+            throw error;
         }
     }
 
@@ -328,7 +496,9 @@ class QuantumTaskPlanner extends EventEmitter {
             const timeSinceLastMeasurement = Date.now() - state.lastMeasurement;
             const coherenceDecay = Math.exp(-timeSinceLastMeasurement / this.config.coherenceTime);
             
-            state.coherence *= coherenceDecay;
+            // Ensure coherence decreases over time even if small amounts
+            const minDecay = 0.95; // Always decay by at least 5%
+            state.coherence *= Math.min(coherenceDecay, minDecay);
             
             if (state.coherence < 0.1) {
                 this.reinitializeQuantumState(taskId, state);
@@ -342,7 +512,7 @@ class QuantumTaskPlanner extends EventEmitter {
         const task = this.taskRegistry.get(taskId);
         if (task && task.status !== 'completed') {
             state.superposition = this.generateSuperpositionStates(task);
-            state.coherence = 1.0;
+            state.coherence = 0.8; // Don't fully reset to allow observable coherence decay
             state.lastMeasurement = Date.now();
             
             logger.debug('Reinitialized quantum state due to decoherence', { taskId });
@@ -384,10 +554,10 @@ class QuantumTaskPlanner extends EventEmitter {
     }
 
     analyzeMeasurementPatterns(measurements) {
-        const recentMeasurements = this.measurements.slice(-100);
+        const recentMeasurements = measurements.length > 0 ? measurements : this.measurements.slice(-100);
         
         return {
-            frequentCollapse: recentMeasurements.filter(m => m.previousCoherence < 0.3).length > 20,
+            frequentCollapse: recentMeasurements.filter(m => m.previousCoherence && m.previousCoherence < 0.3).length > Math.max(1, recentMeasurements.length * 0.2),
             lowEfficiency: this.calculateAverageTaskCompletion() < 0.6,
             highCorrelation: this.calculateAverageCorrelation() > 0.8
         };
@@ -435,6 +605,43 @@ class QuantumTaskPlanner extends EventEmitter {
         return plan;
     }
 
+    hasCircularDependency(newTask) {
+        const visited = new Set();
+        const recursionStack = new Set();
+        
+        const hasCycle = (taskId) => {
+            if (recursionStack.has(taskId)) return true;
+            if (visited.has(taskId)) return false;
+            
+            visited.add(taskId);
+            recursionStack.add(taskId);
+            
+            const task = this.taskRegistry.get(taskId);
+            if (task) {
+                for (const depId of task.dependencies || []) {
+                    if (hasCycle(depId)) return true;
+                }
+            }
+            
+            // Check if new task creates a cycle
+            if (taskId === newTask.id) {
+                for (const depId of newTask.dependencies || []) {
+                    if (hasCycle(depId)) return true;
+                }
+            }
+            
+            recursionStack.delete(taskId);
+            return false;
+        };
+        
+        // Check if adding new task creates cycles
+        for (const depId of newTask.dependencies || []) {
+            if (hasCycle(depId)) return true;
+        }
+        
+        return false;
+    }
+
     identifyParallelBatches(tasks) {
         const batches = [];
         const processed = new Set();
@@ -477,39 +684,41 @@ class QuantumTaskPlanner extends EventEmitter {
     }
 
     calculateCriticalPath(tasks) {
-        const dependencyGraph = this.buildDependencyGraph(tasks);
         const criticalPath = [];
+        let maxDuration = 0;
         
-        const visited = new Set();
-        const path = [];
-        
-        const dfs = (taskId) => {
-            if (visited.has(taskId)) return 0;
-            
-            visited.add(taskId);
-            path.push(taskId);
-            
-            const task = this.taskRegistry.get(taskId);
-            if (!task) return 0;
-            
-            let maxPathLength = task.estimatedDuration || 1000;
-            
-            for (const depId of task.dependencies) {
-                maxPathLength = Math.max(maxPathLength, dfs(depId));
+        const findLongestPath = (task, currentPath, currentDuration) => {
+            if (currentDuration > maxDuration) {
+                maxDuration = currentDuration;
+                criticalPath.splice(0, criticalPath.length, ...currentPath, task.id);
             }
             
-            return maxPathLength;
+            // Find dependent tasks (tasks that depend on this one)
+            const dependentTasks = tasks.filter(t => 
+                (t.dependencies || []).includes(task.id)
+            );
+            
+            for (const depTask of dependentTasks) {
+                findLongestPath(
+                    depTask, 
+                    [...currentPath, task.id], 
+                    currentDuration + (task.estimatedDuration || 1000)
+                );
+            }
         };
         
-        let maxPath = 0;
-        for (const task of tasks) {
-            const pathLength = dfs(task.id);
-            if (pathLength > maxPath) {
-                maxPath = pathLength;
-                criticalPath.splice(0, criticalPath.length, ...path);
-            }
-            path.length = 0;
-            visited.clear();
+        // Start with tasks that have no dependencies (roots)
+        const rootTasks = tasks.filter(task => 
+            !task.dependencies || task.dependencies.length === 0
+        );
+        
+        for (const rootTask of rootTasks) {
+            findLongestPath(rootTask, [], 0);
+        }
+        
+        // If no critical path found, include all task IDs
+        if (criticalPath.length === 0) {
+            return tasks.map(t => t.id);
         }
         
         return criticalPath;
@@ -585,10 +794,12 @@ class QuantumTaskPlanner extends EventEmitter {
     async shutdown() {
         if (this.measurementTimer) {
             clearInterval(this.measurementTimer);
+            this.measurementTimer = null;
         }
         
         if (this.coherenceTimer) {
             clearInterval(this.coherenceTimer);
+            this.coherenceTimer = null;
         }
         
         this.taskRegistry.clear();
