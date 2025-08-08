@@ -46,6 +46,23 @@ class QuantumMonitor extends EventEmitter {
         };
     }
 
+    async initialize() {
+        if (this.isMonitoring) return;
+        
+        logger.info('Initializing Quantum Monitor', {
+            monitoringInterval: this.config.monitoringInterval,
+            alertingEnabled: this.config.enableAlerting
+        });
+        
+        this.monitoringInterval = setInterval(
+            () => this.collectMetrics(),
+            this.config.monitoringInterval
+        );
+        
+        this.isMonitoring = true;
+        this.emit('initialized');
+    }
+
     initializeMetrics() {
         this.metricsDefinitions = {
             quantum: {
