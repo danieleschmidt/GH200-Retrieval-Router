@@ -373,7 +373,7 @@ function sanitizeInput(input) {
     // Remove potentially dangerous characters
     return input
         .replace(/[<>"'&]/g, '') // Remove HTML/XML chars
-        .replace(/\x00/g, '') // Remove null bytes
+        .replace(/\\0/g, '') // Remove null bytes
         .replace(/\\x[0-9a-fA-F]{2}/g, '') // Remove hex sequences
         .trim();
 }

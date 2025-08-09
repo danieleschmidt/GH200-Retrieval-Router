@@ -634,7 +634,7 @@ class QuantumRegionManager extends EventEmitter {
                 compatibleRegions.sort((a, b) => a.distance - b.distance);
                 return compatibleRegions[0].regionId;
             
-            case 'lowest_load':
+            case 'lowest_load': {
                 const regionsByLoad = compatibleRegions
                     .map(r => ({
                         regionId: r.regionId,
@@ -642,6 +642,7 @@ class QuantumRegionManager extends EventEmitter {
                     }))
                     .sort((a, b) => a.load - b.load);
                 return regionsByLoad[0].regionId;
+            }
             
             default:
                 return compatibleRegions[0].regionId;
