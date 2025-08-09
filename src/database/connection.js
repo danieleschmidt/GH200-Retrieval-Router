@@ -6,6 +6,7 @@
 const { Pool } = require('pg');
 const Redis = require('ioredis');
 const { logger } = require('../utils/logger');
+// Validation utilities imported but not used - keeping for future use
 const { validateConfig } = require('../utils/validators');
 
 class DatabaseConnectionManager {
@@ -142,7 +143,7 @@ class DatabaseConnectionManager {
             await this.connections.redis.connect();
             
             const info = await this.connections.redis.info('server');
-            const version = info.match(/redis_version:([\d\.]+)/)?.[1] || 'unknown';
+            const version = info.match(/redis_version:([\d.]+)/)?.[1] || 'unknown';
             
             logger.info('Redis connection established', {
                 version,

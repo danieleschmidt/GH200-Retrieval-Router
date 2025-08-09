@@ -352,7 +352,7 @@ class QuantumCompliance {
         if (typeof data !== 'object') return false;
         
         const checkObject = (obj, field) => {
-            if (obj.hasOwnProperty(field)) return true;
+            if (Object.prototype.hasOwnProperty.call(obj, field)) return true;
             
             for (const key in obj) {
                 if (typeof obj[key] === 'object' && obj[key] !== null) {
@@ -456,7 +456,7 @@ class QuantumCompliance {
             'security': ['id', 'ip_address', 'user_agent', 'authentication_logs']
         };
         
-        return fieldMappings[purpose] || Object.keys(data);
+        return fieldMappings[purpose] || [];
     }
 
     async encryptSensitiveFields(data) {

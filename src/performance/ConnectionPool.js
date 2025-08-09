@@ -642,7 +642,7 @@ class ConnectionPool extends EventEmitter {
         return {
             healthy,
             unhealthy,
-            healthyPercentage: total > 0 ? (healthy / (healthy + unhealthy)) * 100 : 100
+            healthyPercentage: (healthy + unhealthy) > 0 ? (healthy / (healthy + unhealthy)) * 100 : 100
         };
     }
 }

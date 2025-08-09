@@ -206,8 +206,8 @@ module.exports = {
         decoherenceThreshold: 0.1
     },
     
-    // Adaptive Optimization Configuration
-    optimization: {
+    // Adaptive Optimization Configuration (merged with existing optimization block)
+    adaptiveOptimization: {
         learningRate: 0.01,
         adaptationInterval: 5000,
         memoryWindow: 1000,
