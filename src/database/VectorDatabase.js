@@ -9,6 +9,8 @@ const { ScannIndex } = require('./indices/ScannIndex');
 const { CuvsIndex } = require('./indices/CuvsIndex');
 const { logger } = require('../utils/logger');
 const { validateVectorConfig, validateSearchQuery } = require('../utils/validators');
+const { circuitBreakerManager } = require('../middleware/circuitBreaker');
+const { retry, RetryConditions, retryable } = require('../utils/retry');
 
 class VectorDatabase extends EventEmitter {
     constructor(config = {}) {
@@ -48,6 +50,17 @@ class VectorDatabase extends EventEmitter {
         };
         
         this.initialized = false;
+        
+        // Circuit breakers for different operations
+        this.searchBreaker = circuitBreakerManager.getBreaker('vector-search', {
+            failureThreshold: 5,
+            resetTimeout: 30000
+        });
+        
+        this.indexBreaker = circuitBreakerManager.getBreaker('vector-index', {
+            failureThreshold: 3,
+            resetTimeout: 60000
+        });
     }
     
     /**
@@ -91,7 +104,7 @@ class VectorDatabase extends EventEmitter {
     static async loadSharded(options = {}) {
         const {
             indexPaths = [],
-            metadataPath,
+            metadataPath: _metadataPath,
             autoBalance = true,
             graceMemory = true
         } = options;
@@ -222,19 +235,44 @@ class VectorDatabase extends EventEmitter {
         const startTime = Date.now();
         
         try {
-            let searchResults;
-            
-            if (shardId !== null && this.indices.has(shardId)) {
-                // Search specific shard
-                const index = this.indices.get(shardId);
-                searchResults = await index.search(embedding, k, filters);
-            } else if (this.indices.size > 1) {
-                // Search across all shards
-                searchResults = await this._searchAllShards(embedding, k, filters);
-            } else {
-                // Search primary index
-                searchResults = await this.activeIndex.search(embedding, k, filters);
-            }
+            // Wrap search operation with circuit breaker and retry logic
+            const searchResults = await this.searchBreaker.execute(async () => {
+                return await retry(async () => {
+                    let results;
+                    
+                    if (shardId !== null && this.indices.has(shardId)) {
+                        // Search specific shard
+                        const index = this.indices.get(shardId);
+                        results = await index.search(embedding, k, filters);
+                    } else if (this.indices.size > 1) {
+                        // Search across all shards
+                        results = await this._searchAllShards(embedding, k, filters);
+                    } else {
+                        // Search primary index
+                        results = await this.activeIndex.search(embedding, k, filters);
+                    }
+                    
+                    return results;
+                }, {
+                    attempts: 3,
+                    baseDelay: 100,
+                    maxDelay: 2000,
+                    retryCondition: (error) => {
+                        // Retry on memory errors, timeouts, and temporary failures
+                        return RetryConditions.memoryError(error) ||
+                               RetryConditions.networkError(error) ||
+                               error.message.includes('timeout') ||
+                               error.message.includes('busy');
+                    },
+                    onRetry: (error, attempt) => {
+                        logger.warn('Vector search retry', {
+                            attempt,
+                            error: error.message,
+                            searchOptions: { k, shardId: shardId || 'all' }
+                        });
+                    }
+                });
+            });
             
             const latency = Date.now() - startTime;
             
@@ -531,6 +569,98 @@ class VectorDatabase extends EventEmitter {
             logger.error('Error during VectorDatabase shutdown', { error: error.message });
             throw error;
         }
+    }
+    
+    /**
+     * Health check for the vector database
+     * @returns {Object} Health status information
+     */
+    async healthCheck() {
+        const healthStatus = {
+            healthy: true,
+            timestamp: new Date().toISOString(),
+            initialized: this.initialized,
+            indexType: this.config.indexType,
+            dimensions: this.config.dimensions,
+            errors: []
+        };
+
+        try {
+            // Check initialization status
+            if (!this.initialized) {
+                healthStatus.healthy = false;
+                healthStatus.errors.push('Database not initialized');
+                return healthStatus;
+            }
+
+            // Check active index
+            if (!this.activeIndex) {
+                healthStatus.healthy = false;
+                healthStatus.errors.push('No active index available');
+            } else {
+                try {
+                    // Try to get index status
+                    const indexStatus = this.activeIndex.getStatus ? 
+                        await this.activeIndex.getStatus() : 
+                        { status: 'available', healthy: true };
+                    
+                    healthStatus.activeIndex = indexStatus;
+                    if (indexStatus.healthy === false) {
+                        healthStatus.healthy = false;
+                        healthStatus.errors.push('Active index unhealthy');
+                    }
+                } catch (error) {
+                    healthStatus.healthy = false;
+                    healthStatus.errors.push(`Active index error: ${error.message}`);
+                }
+            }
+
+            // Add metrics
+            healthStatus.metrics = {
+                vectorCount: this.metadata.vectorCount,
+                totalSearches: this.stats.totalSearches,
+                averageSearchLatency: this.stats.averageSearchLatency,
+                indexBuildTime: this.stats.indexBuildTime,
+                memoryUsage: this._getTotalMemoryUsage(),
+                cacheHitRate: this.stats.cacheHitRate,
+                activeIndices: this.indices.size
+            };
+
+        } catch (error) {
+            healthStatus.healthy = false;
+            healthStatus.errors.push(`Health check error: ${error.message}`);
+            logger.error('VectorDatabase health check failed', { error: error.message });
+        }
+
+        return healthStatus;
+    }
+
+    /**
+     * Check if database is ready to serve requests
+     * @returns {boolean} Readiness status
+     */
+    async isReady() {
+        try {
+            return this.initialized && this.activeIndex !== null;
+        } catch (error) {
+            logger.error('VectorDatabase readiness check failed', { error: error.message });
+            return false;
+        }
+    }
+
+    /**
+     * Get basic status information
+     * @returns {Object} Status information
+     */
+    async getStatus() {
+        return {
+            status: this.initialized ? 'ready' : 'not_initialized',
+            indexType: this.config.indexType,
+            dimensions: this.config.dimensions,
+            vectorCount: this.metadata.vectorCount,
+            activeIndices: this.indices.size,
+            memoryUsage: this._getTotalMemoryUsage()
+        };
     }
 }
 

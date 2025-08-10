@@ -1,0 +1,183 @@
+# Network Security Policies for GH200 Retrieval Router
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gh200-network-isolation
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gh200-retrieval-router
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow ingress from ingress controllers
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+  # Allow ingress from monitoring namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: gh200-monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow internal communication between pods
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: gh200-retrieval-router
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Allow HTTPS traffic for external APIs
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow HTTP traffic for internal services
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 80
+  # Allow Redis access
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # Allow Prometheus metrics collection
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: gh200-monitoring
+    ports:
+    - protocol: TCP
+      port: 9090
+  # Allow Jaeger tracing
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: gh200-monitoring
+    ports:
+    - protocol: TCP
+      port: 14268
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gh200-monitoring-isolation
+  namespace: gh200-monitoring
+  labels:
+    app.kubernetes.io/name: gh200-monitoring
+    app.kubernetes.io/component: security
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow ingress from application namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: gh200-system
+  # Allow ingress from ingress controllers
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 3000  # Grafana
+    - protocol: TCP
+      port: 9090  # Prometheus
+  # Allow internal monitoring communication
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: gh200-monitoring
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Allow access to application namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: gh200-system
+  # Allow internal monitoring communication
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: gh200-monitoring
+  # Allow Kubernetes API access
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: gh200-system
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: gh200-system
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: gh200-system
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: gh200-system

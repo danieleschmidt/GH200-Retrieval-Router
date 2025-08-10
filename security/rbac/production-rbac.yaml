@@ -1,0 +1,333 @@
+# Production RBAC Configuration for GH200 Retrieval Router
+# Role-Based Access Control with least privilege principle
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gh200-application-sa
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+automountServiceAccountToken: true
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gh200-monitoring-sa
+  namespace: gh200-monitoring
+  labels:
+    app.kubernetes.io/name: gh200-monitoring
+    app.kubernetes.io/component: security
+automountServiceAccountToken: true
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gh200-deployment-sa
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-deployment
+    app.kubernetes.io/component: security
+automountServiceAccountToken: true
+
+---
+# Application Role - Minimal permissions for runtime
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gh200-application-role
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+rules:
+# Read access to ConfigMaps and Secrets
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+  resourceNames: ["gh200-config", "gh200-secrets", "gh200-runtime-config"]
+# Read access to Services for service discovery
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+# Read access to own Pod information
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+  resourceNames: []
+# Events creation for logging
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create"]
+
+---
+# Monitoring Role - Prometheus scraping permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gh200-monitoring-role
+  labels:
+    app.kubernetes.io/name: gh200-monitoring
+    app.kubernetes.io/component: security
+rules:
+# Node metrics access
+- apiGroups: [""]
+  resources: ["nodes", "nodes/metrics", "nodes/proxy"]
+  verbs: ["get", "list", "watch"]
+# Pod and service discovery
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+# Metrics access
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list"]
+# ConfigMap access for monitoring configuration
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+# Ingress monitoring
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch"]
+
+---
+# Deployment Role - CI/CD pipeline permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gh200-deployment-role
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-deployment
+    app.kubernetes.io/component: security
+rules:
+# Full access to application resources
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "replicasets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# ConfigMap and Secret management
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Service management
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Pod management for troubleshooting
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "pods/status"]
+  verbs: ["get", "list", "watch", "delete"]
+# PVC management
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# HPA management
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Network Policy management
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies", "ingresses"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+# Security Operator Role - Security policy management
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gh200-security-operator-role
+  labels:
+    app.kubernetes.io/name: gh200-security
+    app.kubernetes.io/component: security
+rules:
+# Pod Security Policy management
+- apiGroups: ["policy"]
+  resources: ["podsecuritypolicies"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "use"]
+# Network Policy management
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# RBAC management
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Security Context Constraints (OpenShift)
+- apiGroups: ["security.openshift.io"]
+  resources: ["securitycontextconstraints"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "use"]
+# OPA Gatekeeper policies
+- apiGroups: ["templates.gatekeeper.sh", "constraints.gatekeeper.sh"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+# Read-Only Role for developers and support
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gh200-readonly-role
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-readonly
+    app.kubernetes.io/component: security
+rules:
+# Read-only access to application resources
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "services", "endpoints", "configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses", "networkpolicies"]
+  verbs: ["get", "list", "watch"]
+# Metrics access
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+
+---
+# Role Bindings
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gh200-application-binding
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+subjects:
+- kind: ServiceAccount
+  name: gh200-application-sa
+  namespace: gh200-system
+roleRef:
+  kind: Role
+  name: gh200-application-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gh200-monitoring-binding
+  labels:
+    app.kubernetes.io/name: gh200-monitoring
+    app.kubernetes.io/component: security
+subjects:
+- kind: ServiceAccount
+  name: gh200-monitoring-sa
+  namespace: gh200-monitoring
+roleRef:
+  kind: ClusterRole
+  name: gh200-monitoring-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gh200-deployment-binding
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-deployment
+    app.kubernetes.io/component: security
+subjects:
+- kind: ServiceAccount
+  name: gh200-deployment-sa
+  namespace: gh200-system
+# Add CI/CD service accounts
+- kind: ServiceAccount
+  name: github-actions-sa
+  namespace: gh200-system
+- kind: ServiceAccount
+  name: gitlab-runner-sa
+  namespace: gh200-system
+roleRef:
+  kind: Role
+  name: gh200-deployment-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# User role bindings (customize based on your organization)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gh200-developers-binding
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-developers
+    app.kubernetes.io/component: security
+subjects:
+# Add your developer groups/users here
+- kind: Group
+  name: "gh200-developers"
+  apiGroup: rbac.authorization.k8s.io
+- kind: User
+  name: "developer@terragon-labs.com"
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: gh200-readonly-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gh200-security-operators-binding
+  labels:
+    app.kubernetes.io/name: gh200-security
+    app.kubernetes.io/component: security
+subjects:
+# Add your security team groups/users here
+- kind: Group
+  name: "security-team"
+  apiGroup: rbac.authorization.k8s.io
+- kind: User
+  name: "security@terragon-labs.com"
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: gh200-security-operator-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Emergency break-glass role (use with caution)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gh200-emergency-role
+  labels:
+    app.kubernetes.io/name: gh200-emergency
+    app.kubernetes.io/component: security
+rules:
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["*"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gh200-emergency-binding
+  labels:
+    app.kubernetes.io/name: gh200-emergency
+    app.kubernetes.io/component: security
+subjects:
+# Only for extreme emergency situations
+- kind: User
+  name: "emergency@terragon-labs.com"
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: gh200-emergency-role
+  apiGroup: rbac.authorization.k8s.io

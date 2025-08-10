@@ -1,0 +1,178 @@
+# Install NVIDIA drivers and CUDA toolkit for GH200
+---
+- name: Check if NVIDIA drivers are already installed
+  command: nvidia-smi
+  register: nvidia_smi_check
+  failed_when: false
+  changed_when: false
+
+- name: Install NVIDIA drivers block
+  block:
+    - name: Install kernel development packages
+      package:
+        name:
+          - kernel-devel
+          - kernel-headers
+          - gcc
+          - make
+          - dkms
+        state: present
+
+    - name: Disable nouveau driver
+      copy:
+        content: |
+          blacklist nouveau
+          options nouveau modeset=0
+        dest: /etc/modprobe.d/blacklist-nouveau.conf
+        mode: '0644'
+      register: nouveau_blacklist
+
+    - name: Update initramfs
+      command: dracut --force
+      when: nouveau_blacklist.changed
+
+    - name: Reboot if nouveau was disabled
+      reboot:
+        msg: "Rebooting to disable nouveau driver"
+        reboot_timeout: 300
+      when: nouveau_blacklist.changed
+
+    - name: Download NVIDIA driver installer
+      get_url:
+        url: "{{ nvidia_driver_url }}"
+        dest: "/tmp/nvidia-driver-{{ nvidia_driver_version }}.run"
+        mode: '0755'
+        timeout: 300
+
+    - name: Install NVIDIA driver
+      command: >
+        /tmp/nvidia-driver-{{ nvidia_driver_version }}.run
+        --silent
+        --no-questions
+        --ui=none
+        --disable-nouveau
+        --no-cc-version-check
+        --install-libglvnd
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      register: nvidia_install
+      failed_when: nvidia_install.rc not in [0, 1]
+
+    - name: Verify NVIDIA driver installation
+      command: nvidia-smi
+      register: nvidia_smi_verify
+      retries: 3
+      delay: 5
+      until: nvidia_smi_verify.rc == 0
+
+  when: nvidia_smi_check.rc != 0
+
+- name: Install CUDA toolkit
+  block:
+    - name: Download CUDA toolkit installer
+      get_url:
+        url: "{{ cuda_toolkit_url }}"
+        dest: "/tmp/cuda-{{ cuda_version }}.run"
+        mode: '0755'
+        timeout: 600
+
+    - name: Install CUDA toolkit
+      command: >
+        /tmp/cuda-{{ cuda_version }}.run
+        --silent
+        --toolkit
+        --override
+        --no-opengl-libs
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      register: cuda_install
+
+    - name: Add CUDA to PATH
+      lineinfile:
+        path: /etc/environment
+        line: 'PATH="/usr/local/cuda/bin:$PATH"'
+        state: present
+
+    - name: Add CUDA library path
+      copy:
+        content: /usr/local/cuda/lib64
+        dest: /etc/ld.so.conf.d/cuda.conf
+        mode: '0644'
+      register: cuda_lib_config
+
+    - name: Update library cache
+      command: ldconfig
+      when: cuda_lib_config.changed
+
+- name: Install NVIDIA Container Toolkit
+  block:
+    - name: Add NVIDIA Container Toolkit repository
+      yum_repository:
+        name: nvidia-container-toolkit
+        description: NVIDIA Container Toolkit
+        baseurl: "https://nvidia.github.io/nvidia-container-toolkit/{{ ansible_distribution | lower }}{{ ansible_distribution_major_version }}/{{ ansible_architecture }}"
+        enabled: yes
+        gpgcheck: yes
+        gpgkey: https://nvidia.github.io/nvidia-container-toolkit/gpgkey
+      when: ansible_os_family == "RedHat"
+
+    - name: Install NVIDIA Container Toolkit
+      package:
+        name: nvidia-container-toolkit
+        state: present
+
+    - name: Configure NVIDIA Container Runtime
+      command: nvidia-ctk runtime configure --runtime=docker
+      register: nvidia_runtime_config
+      changed_when: "'Configuration file updated' in nvidia_runtime_config.stdout"
+
+- name: Configure GPU persistence daemon
+  copy:
+    content: |
+      #!/bin/bash
+      # Enable GPU persistence mode for better performance
+      nvidia-smi -pm 1
+      nvidia-smi -acp 0
+      
+      # Set GPU performance mode
+      for i in $(nvidia-smi --query-gpu=index --format=csv,noheader); do
+        nvidia-smi -i $i -ac 1215,1410  # Memory,Graphics clock speeds for GH200
+      done
+      
+      # Configure GPU error correction
+      nvidia-smi --ecc-config=1
+    dest: /usr/local/bin/gpu-persistence.sh
+    mode: '0755'
+
+- name: Create systemd service for GPU persistence
+  copy:
+    content: |
+      [Unit]
+      Description=NVIDIA GPU Persistence Daemon
+      After=multi-user.target
+      
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/gpu-persistence.sh
+      RemainAfterExit=yes
+      
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/nvidia-persistence.service
+    mode: '0644'
+  register: nvidia_persistence_service
+
+- name: Enable and start GPU persistence service
+  systemd:
+    name: nvidia-persistence
+    enabled: yes
+    state: started
+    daemon_reload: "{{ nvidia_persistence_service.changed }}"
+
+- name: Clean up installer files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/nvidia-driver-{{ nvidia_driver_version }}.run"
+    - "/tmp/cuda-{{ cuda_version }}.run"

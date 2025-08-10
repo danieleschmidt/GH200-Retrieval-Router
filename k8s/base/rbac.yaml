@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gh200-service-account
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gh200-role
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gh200-role-binding
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+subjects:
+- kind: ServiceAccount
+  name: gh200-service-account
+  namespace: gh200-system
+roleRef:
+  kind: Role
+  name: gh200-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gh200-cluster-role
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "nodes/metrics", "nodes/proxy"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list"]
+- apiGroups: ["node.k8s.io"]
+  resources: ["runtimeclasses"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gh200-cluster-role-binding
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+subjects:
+- kind: ServiceAccount
+  name: gh200-service-account
+  namespace: gh200-system
+roleRef:
+  kind: ClusterRole
+  name: gh200-cluster-role
+  apiGroup: rbac.authorization.k8s.io

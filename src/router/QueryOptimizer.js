@@ -413,6 +413,33 @@ class QueryOptimizer {
     }
     
     /**
+     * Health check for query optimizer
+     * @returns {Object} Health status information
+     */
+    async healthCheck() {
+        return {
+            healthy: this.initialized,
+            timestamp: new Date().toISOString(),
+            initialized: this.initialized,
+            cacheSize: this.queryCache.size,
+            semanticCacheSize: this.semanticCache.size,
+            queryStatsSize: this.queryStats.size,
+            cacheHitRate: this._calculateCacheHitRate(),
+            averageOptimizationTime: this._calculateAverageOptimizationTime(),
+            rewritingRulesCount: this.rewritingRules?.length || 0,
+            errors: this.initialized ? [] : ['QueryOptimizer not initialized']
+        };
+    }
+
+    /**
+     * Check if query optimizer is ready
+     * @returns {boolean} Readiness status
+     */
+    async isReady() {
+        return this.initialized;
+    }
+
+    /**
      * Shutdown query optimizer
      */
     async shutdown() {

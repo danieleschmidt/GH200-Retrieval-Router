@@ -1,0 +1,76 @@
+apiVersion: v2
+name: gh200-retrieval-router
+description: A Helm chart for GH200 Retrieval Router - High-bandwidth retrieval-augmented inference engine optimized for NVIDIA GH200 Grace Hopper Superchip
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+- gh200
+- grace-hopper
+- vector-search
+- retrieval-augmented-generation
+- nvidia
+- gpu
+- high-performance
+
+home: https://github.com/terragon-labs/gh200-retrieval-router
+sources:
+- https://github.com/terragon-labs/gh200-retrieval-router
+
+maintainers:
+- name: Terragon Labs
+  email: support@terragon-labs.com
+  url: https://terragon-labs.com
+
+dependencies:
+- name: redis
+  version: "17.11.3"
+  repository: "https://charts.bitnami.com/bitnami"
+  condition: redis.enabled
+  tags:
+  - database
+- name: prometheus
+  version: "15.10.1" 
+  repository: "https://prometheus-community.github.io/helm-charts"
+  condition: prometheus.enabled
+  tags:
+  - monitoring
+- name: grafana
+  version: "6.57.4"
+  repository: "https://grafana.github.io/helm-charts"
+  condition: grafana.enabled
+  tags:
+  - monitoring
+- name: elasticsearch
+  version: "19.10.0"
+  repository: "https://charts.bitnami.com/bitnami"
+  condition: elasticsearch.enabled
+  tags:
+  - logging
+- name: jaeger
+  version: "0.71.2"
+  repository: "https://jaegertracing.github.io/helm-charts"
+  condition: jaeger.enabled
+  tags:
+  - tracing
+
+annotations:
+  category: AI/ML
+  licenses: Apache-2.0
+  images: |
+    - name: gh200-retrieval-router
+      image: nvcr.io/terragon/gh200-retrieval-router:1.0.0
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/containsSecurityUpdates: "true"
+  artifacthub.io/changes: |
+    - kind: added
+      description: Initial release with GH200 optimizations
+    - kind: added  
+      description: Multi-stage production Docker builds
+    - kind: added
+      description: Kubernetes manifests with auto-scaling
+    - kind: added
+      description: Comprehensive monitoring and observability
+    - kind: added
+      description: Security hardening and compliance features

@@ -34,8 +34,8 @@ const graceHopperFormat = format.combine(
 // Transport configuration optimized for high-throughput logging
 const transports = [];
 
-// Console transport for development
-if (isDevelopment) {
+// Console transport for development and fallback
+if (isDevelopment || !isProduction) {
     transports.push(
         new winston.transports.Console({
             format: format.combine(
@@ -49,6 +49,14 @@ if (isDevelopment) {
 
 // File transport for production with rotation
 if (isProduction) {
+    // Ensure logs directory exists
+    const fs = require('fs');
+    const path = require('path');
+    const logsDir = path.join(process.cwd(), 'logs');
+    if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+    }
+
     transports.push(
         new winston.transports.File({
             filename: 'logs/gh200-router-error.log',
@@ -64,6 +72,16 @@ if (isProduction) {
             maxsize: 500 * 1024 * 1024, // 500MB
             maxFiles: 20,
             tailable: true
+        })
+    );
+}
+
+// Ensure we always have at least one transport
+if (transports.length === 0) {
+    transports.push(
+        new winston.transports.Console({
+            format: graceHopperFormat,
+            level: logLevel
         })
     );
 }

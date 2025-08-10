@@ -1,0 +1,251 @@
+# GDPR Compliance Configuration for GH200 Retrieval Router
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gdpr-compliance-config
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: compliance
+data:
+  gdpr-config.yaml: |
+    # GDPR Compliance Configuration
+    gdpr:
+      enabled: true
+      data_protection_officer:
+        name: "Terragon Labs DPO"
+        email: "dpo@terragon-labs.com"
+        phone: "+1-555-GDPR-DPO"
+      
+      # Data processing lawful bases
+      lawful_bases:
+        - legitimate_interest
+        - consent
+        - contract_performance
+      
+      # Data categories and retention policies
+      data_categories:
+        user_queries:
+          description: "User search queries and vector embeddings"
+          retention_days: 365
+          encryption_required: true
+          anonymization_after_days: 90
+          legal_basis: "legitimate_interest"
+          
+        system_logs:
+          description: "Application and system logs"
+          retention_days: 180
+          encryption_required: true
+          anonymization_after_days: 30
+          legal_basis: "legitimate_interest"
+          
+        performance_metrics:
+          description: "Performance and monitoring metrics"
+          retention_days: 730
+          encryption_required: false
+          anonymization_after_days: 365
+          legal_basis: "legitimate_interest"
+          
+        security_events:
+          description: "Security monitoring and threat detection data"
+          retention_days: 2555  # 7 years
+          encryption_required: true
+          anonymization_after_days: 1095  # 3 years
+          legal_basis: "legitimate_interest"
+      
+      # Data subject rights
+      data_subject_rights:
+        access:
+          enabled: true
+          endpoint: "/api/v1/gdpr/access"
+          max_response_days: 30
+          
+        rectification:
+          enabled: true
+          endpoint: "/api/v1/gdpr/rectify"
+          max_response_days: 30
+          
+        erasure:
+          enabled: true
+          endpoint: "/api/v1/gdpr/erase"
+          max_response_days: 30
+          
+        portability:
+          enabled: true
+          endpoint: "/api/v1/gdpr/export"
+          max_response_days: 30
+          format: "json"
+          
+        restrict_processing:
+          enabled: true
+          endpoint: "/api/v1/gdpr/restrict"
+          max_response_days: 30
+          
+        object_to_processing:
+          enabled: true
+          endpoint: "/api/v1/gdpr/object"
+          max_response_days: 30
+      
+      # Consent management
+      consent:
+        required_for: ["analytics", "performance_optimization", "personalization"]
+        withdrawal_endpoint: "/api/v1/gdpr/consent/withdraw"
+        consent_record_retention_days: 2555  # 7 years after withdrawal
+        
+      # Data breach notification
+      breach_notification:
+        enabled: true
+        notification_within_hours: 72
+        authority_contact: "privacy@dataprotection.eu"
+        documentation_required: true
+        
+      # Cross-border data transfers
+      data_transfers:
+        adequacy_decision_countries: ["USA", "Canada", "Japan", "South Korea"]
+        standard_contractual_clauses: true
+        binding_corporate_rules: false
+        
+      # Privacy by design
+      privacy_by_design:
+        data_minimization: true
+        purpose_limitation: true
+        storage_limitation: true
+        accuracy_principle: true
+        integrity_confidentiality: true
+        accountability: true
+        
+      # Regular assessments
+      assessments:
+        data_protection_impact_assessment: true
+        dpia_threshold_criteria:
+          - "automated_decision_making"
+          - "large_scale_monitoring"
+          - "sensitive_data_processing"
+        privacy_audit_frequency_months: 12
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gdpr-data-retention-cleanup
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: compliance
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: gdpr-cleanup
+            app.kubernetes.io/component: compliance
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+          - name: gdpr-cleanup
+            image: nvcr.io/terragon/gh200-retrieval-router:latest
+            command: ["node", "scripts/gdpr-cleanup.js"]
+            env:
+            - name: GDPR_CONFIG_PATH
+              value: "/etc/gdpr/gdpr-config.yaml"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: gh200-secrets
+                  key: DATABASE_URL
+            volumeMounts:
+            - name: gdpr-config
+              mountPath: /etc/gdpr
+              readOnly: true
+            resources:
+              limits:
+                cpu: 500m
+                memory: 1Gi
+              requests:
+                cpu: 100m
+                memory: 512Mi
+          volumes:
+          - name: gdpr-config
+            configMap:
+              name: gdpr-compliance-config
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gdpr-data-anonymization
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: compliance
+spec:
+  schedule: "0 3 * * 0"  # Weekly on Sunday at 3 AM
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: gdpr-anonymization
+            app.kubernetes.io/component: compliance
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+          - name: gdpr-anonymization
+            image: nvcr.io/terragon/gh200-retrieval-router:latest
+            command: ["node", "scripts/gdpr-anonymization.js"]
+            env:
+            - name: GDPR_CONFIG_PATH
+              value: "/etc/gdpr/gdpr-config.yaml"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: gh200-secrets
+                  key: DATABASE_URL
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gh200-secrets
+                  key: GDPR_ENCRYPTION_KEY
+            volumeMounts:
+            - name: gdpr-config
+              mountPath: /etc/gdpr
+              readOnly: true
+            resources:
+              limits:
+                cpu: 1
+                memory: 2Gi
+              requests:
+                cpu: 200m
+                memory: 1Gi
+          volumes:
+          - name: gdpr-config
+            configMap:
+              name: gdpr-compliance-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gdpr-compliance-service
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: compliance
+spec:
+  selector:
+    app.kubernetes.io/name: gh200-retrieval-router
+  ports:
+  - name: gdpr-api
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP

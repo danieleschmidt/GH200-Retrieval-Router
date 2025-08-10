@@ -1,0 +1,103 @@
+# Docker Compose for GH200 Retrieval Router Production Testing
+version: '3.8'
+
+services:
+  gh200-retrieval-router:
+    image: nvcr.io/terragon/gh200-retrieval-router:latest
+    container_name: gh200-retrieval-router-prod
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      - ENABLE_GPU_ACCELERATION=true
+      - ENABLE_MONITORING=true
+      - PROMETHEUS_METRICS=true
+      - JAEGER_TRACING=true
+      - REDIS_URL=redis://redis:6379
+      - GRACE_MEMORY_SIZE=480
+      - TARGET_QPS=125000
+      - TARGET_RAG_QPS=450
+      - GPU_COUNT=4
+      - RATE_LIMIT_MAX=10000
+      - ENABLE_THREAT_DETECTION=true
+      - GDPR_COMPLIANCE=true
+      - CCPA_COMPLIANCE=true
+      - DATA_RETENTION_DAYS=365
+    volumes:
+      - gh200_prod_data:/app/data
+      - gh200_prod_logs:/app/logs
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 32G
+        reservations:
+          cpus: '4'
+          memory: 16G
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - gh200-prod-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: gh200-redis-prod
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_prod_data:/data
+      - ./deployment/redis/redis-prod.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    networks:
+      - gh200-prod-network
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: gh200-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deployment/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deployment/nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - gh200-retrieval-router
+    networks:
+      - gh200-prod-network
+    restart: unless-stopped
+
+volumes:
+  gh200_prod_data:
+    driver: local
+  gh200_prod_logs:
+    driver: local
+  redis_prod_data:
+    driver: local
+
+networks:
+  gh200-prod-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16

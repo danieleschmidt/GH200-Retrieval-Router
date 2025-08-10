@@ -1,0 +1,176 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "gh200-retrieval-router.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "gh200-retrieval-router.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "gh200-retrieval-router.fullname" . }}-headless
+  replicas: {{ .Values.deployment.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "gh200-retrieval-router.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gh200-retrieval-router.selectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.config.port }}"
+        prometheus.io/path: "/api/v1/metrics"
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.secrets.create }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+    spec:
+      {{- include "gh200-retrieval-router.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "gh200-retrieval-router.serviceAccountName" . }}
+      {{- include "gh200-retrieval-router.podSecurityContext" . | nindent 6 }}
+      
+      # Node selection for GH200 nodes
+      {{- if .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- end }}
+      
+      # Tolerations for GH200 nodes
+      {{- if .Values.tolerations }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- end }}
+      
+      # Affinity for better pod distribution
+      {{- if .Values.affinity }}
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}
+      {{- end }}
+      
+      # Init container for data preparation
+      initContainers:
+      - name: init-data
+        image: busybox:1.35
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Initializing data directories..."
+          mkdir -p /app/data/indices /app/data/cache /app/data/logs
+          chown -R {{ .Values.securityContext.runAsUser }}:{{ .Values.securityContext.runAsGroup }} /app/data
+          echo "Data directories initialized"
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+      
+      containers:
+      - name: {{ .Chart.Name }}
+        image: {{ include "gh200-retrieval-router.image" . }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        
+        # Resource allocation for GH200
+        {{- include "gh200-retrieval-router.resources" . | nindent 8 }}
+        
+        # Ports
+        ports:
+        - name: http
+          containerPort: {{ .Values.config.port }}
+          protocol: TCP
+        - name: websocket
+          containerPort: {{ .Values.config.monitoring.dashboardWsPort }}
+          protocol: TCP
+        
+        # Environment variables from ConfigMap and Secrets
+        envFrom:
+        - configMapRef:
+            name: {{ include "gh200-retrieval-router.fullname" . }}-config
+        {{- if .Values.secrets.create }}
+        - secretRef:
+            name: {{ include "gh200-retrieval-router.fullname" . }}-secret
+        {{- end }}
+        
+        # Additional environment variables
+        env:
+        - name: REDIS_URL
+          value: {{ include "gh200-retrieval-router.redisUrl" . | quote }}
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        
+        # Volume mounts
+        {{- include "gh200-retrieval-router.volumeMounts" . | nindent 8 }}
+        
+        # Health checks
+        {{- include "gh200-retrieval-router.livenessProbe" . | nindent 8 }}
+        {{- include "gh200-retrieval-router.readinessProbe" . | nindent 8 }}
+        {{- include "gh200-retrieval-router.startupProbe" . | nindent 8 }}
+        
+        # Security context
+        {{- include "gh200-retrieval-router.securityContext" . | nindent 8 }}
+        
+        # Lifecycle hooks
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - |
+                echo "Graceful shutdown initiated..."
+                curl -X POST http://localhost:{{ .Values.config.port }}/api/v1/shutdown || true
+                sleep 15
+      
+      # Volumes
+      {{- include "gh200-retrieval-router.volumes" . | nindent 6 }}
+      
+      # Termination grace period
+      terminationGracePeriodSeconds: 60
+      
+      # DNS configuration
+      dnsPolicy: ClusterFirst
+      
+      # Restart policy
+      restartPolicy: Always
+  
+  # Volume claim templates for persistent storage
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      labels:
+        {{- include "gh200-retrieval-router.labels" . | nindent 8 }}
+        app.kubernetes.io/component: storage
+      {{- if .Values.persistence.annotations }}
+      annotations:
+        {{- toYaml .Values.persistence.annotations | nindent 8 }}
+      {{- end }}
+    spec:
+      accessModes:
+      - {{ .Values.persistence.accessMode }}
+      storageClassName: {{ include "gh200-retrieval-router.storageClass" . }}
+      resources:
+        requests:
+          storage: {{ .Values.persistence.size }}
+  {{- end }}
+  
+  # Update strategy
+  updateStrategy:
+    type: {{ .Values.deployment.strategy.type }}
+    {{- if eq .Values.deployment.strategy.type "RollingUpdate" }}
+    rollingUpdate:
+      partition: 0
+    {{- end }}

@@ -1,0 +1,279 @@
+# Pod Security Standards for GH200 Retrieval Router
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gh200-system
+  labels:
+    name: gh200-system
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn-version: latest
+
+---
+# Pod Security Policy for GH200 nodes (requires privileged access for GPU)
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: gh200-node-psp
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+    - 'hostPath'  # Required for GPU access
+  hostPaths:
+    - pathPrefix: "/dev/nvidia"
+      readOnly: false
+    - pathPrefix: "/usr/local/nvidia"
+      readOnly: true
+    - pathPrefix: "/var/lib/kubelet/device-plugins"
+      readOnly: false
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  supplementalGroups:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+  fsGroup:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+  seLinux:
+    rule: 'RunAsAny'
+  readOnlyRootFilesystem: false  # GPU containers may need write access
+
+---
+# Restrictive Pod Security Policy for system components
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: gh200-system-psp
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  supplementalGroups:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+  fsGroup:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+  seLinux:
+    rule: 'RunAsAny'
+  readOnlyRootFilesystem: true
+
+---
+# Security Context Constraints for OpenShift (if applicable)
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: gh200-gpu-scc
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+allowHostDirVolumePlugin: true
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegedContainer: false
+allowedCapabilities: []
+defaultAddCapabilities: []
+requiredDropCapabilities:
+- ALL
+allowedFlexVolumes: []
+fsGroup:
+  type: MustRunAs
+  ranges:
+  - min: 1000
+    max: 65535
+readOnlyRootFilesystem: false
+runAsUser:
+  type: MustRunAsNonRoot
+seLinuxContext:
+  type: RunAsAny
+supplementalGroups:
+  type: MustRunAs
+  ranges:
+  - min: 1000
+    max: 65535
+volumes:
+- configMap
+- downwardAPI
+- emptyDir
+- hostPath
+- persistentVolumeClaim
+- projected
+- secret
+users: []
+groups: []
+
+---
+# OPA Gatekeeper Constraint Template for enforcing security policies
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: gh200securityenforcement
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+spec:
+  crd:
+    spec:
+      names:
+        kind: GH200SecurityEnforcement
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            allowedUsers:
+              type: array
+              items:
+                type: integer
+            requiredLabels:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package gh200security
+        
+        violation[{"msg": msg}] {
+            container := input.review.object.spec.containers[_]
+            not container.securityContext.runAsNonRoot
+            msg := "Containers must run as non-root user"
+        }
+        
+        violation[{"msg": msg}] {
+            container := input.review.object.spec.containers[_]
+            container.securityContext.allowPrivilegeEscalation
+            msg := "Privilege escalation is not allowed"
+        }
+        
+        violation[{"msg": msg}] {
+            required := input.parameters.requiredLabels[_]
+            not input.review.object.metadata.labels[required]
+            msg := sprintf("Required label '%v' is missing", [required])
+        }
+        
+        violation[{"msg": msg}] {
+            container := input.review.object.spec.containers[_]
+            container.securityContext.capabilities.add[_] != "NET_BIND_SERVICE"
+            msg := "Only NET_BIND_SERVICE capability is allowed"
+        }
+
+---
+# Gatekeeper Constraint for GH200 pods
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: GH200SecurityEnforcement
+metadata:
+  name: gh200-security-enforcement
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: security
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet"]
+    namespaces: ["gh200-system"]
+  parameters:
+    allowedUsers: [1000, 1001]
+    requiredLabels:
+      - "app.kubernetes.io/name"
+      - "app.kubernetes.io/component"
+      - "app.kubernetes.io/version"
+
+---
+# Falco Security Rules for runtime security
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-rules
+  namespace: falco-system
+  labels:
+    app.kubernetes.io/name: falco
+    app.kubernetes.io/component: security
+data:
+  gh200_rules.yaml: |
+    - rule: GH200 Unauthorized Network Connection
+      desc: Detect unauthorized network connections from GH200 pods
+      condition: >
+        (spawned_process and container and 
+         k8s.ns.name="gh200-system" and 
+         k8s.pod.label contains "gh200-retrieval-router")
+        and (fd.typechar=4 and fd.net.proto=tcp and 
+             not (fd.port in (8080, 8081, 6379, 9090, 14268)))
+      output: >
+        Unauthorized network connection from GH200 pod
+        (user=%user.name pod=%k8s.pod.name ns=%k8s.ns.name 
+         image=%container.image.repository connection=%fd.name)
+      priority: WARNING
+      
+    - rule: GH200 Sensitive File Access
+      desc: Detect access to sensitive files in GH200 pods
+      condition: >
+        (open_read or open_write) and container and 
+        k8s.ns.name="gh200-system" and
+        k8s.pod.label contains "gh200-retrieval-router" and
+        (fd.name startswith /etc/passwd or 
+         fd.name startswith /etc/shadow or
+         fd.name startswith /root/.ssh or
+         fd.name startswith /var/run/secrets)
+      output: >
+        Sensitive file accessed in GH200 pod
+        (user=%user.name pod=%k8s.pod.name ns=%k8s.ns.name 
+         file=%fd.name operation=%evt.type)
+      priority: WARNING
+      
+    - rule: GH200 Privilege Escalation
+      desc: Detect privilege escalation attempts in GH200 pods
+      condition: >
+        spawned_process and container and
+        k8s.ns.name="gh200-system" and
+        k8s.pod.label contains "gh200-retrieval-router" and
+        (proc.name in (su, sudo, chmod, chown, setuid))
+      output: >
+        Privilege escalation attempt in GH200 pod
+        (user=%user.name pod=%k8s.pod.name ns=%k8s.ns.name 
+         command=%proc.cmdline)
+      priority: CRITICAL

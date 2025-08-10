@@ -1,0 +1,193 @@
+# Docker Compose for GH200 Retrieval Router Development Environment
+version: '3.8'
+
+services:
+  gh200-retrieval-router:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: gh200-retrieval-router
+    ports:
+      - "8080:8080"
+      - "8081:8081"  # Dashboard WebSocket port
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - ENABLE_GPU_ACCELERATION=true
+      - ENABLE_BENCHMARKING=true
+      - ENABLE_AB_TESTING=true
+      - ENABLE_MONITORING=true
+      - ENABLE_DASHBOARD_WS=true
+      - DASHBOARD_WS_PORT=8081
+      - PROMETHEUS_METRICS=true
+      - JAEGER_TRACING=true
+      - REDIS_URL=redis://redis:6379
+      - GRACE_MEMORY_SIZE=480
+      - TARGET_QPS=125000
+      - TARGET_RAG_QPS=450
+      - GPU_COUNT=4
+    volumes:
+      - ./src:/app/src:ro
+      - ./scripts:/app/scripts:ro
+      - gh200_data:/app/data
+      - gh200_logs:/app/logs
+      - gh200_cache:/app/tmp
+    depends_on:
+      - redis
+      - prometheus
+      - jaeger
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - gh200-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  redis:
+    image: redis:7-alpine
+    container_name: gh200-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./deployment/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - gh200-network
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: gh200-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deployment/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deployment/monitoring/rules/:/etc/prometheus/rules/:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    networks:
+      - gh200-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: gh200-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - ./deployment/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deployment/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - gh200-network
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: gh200-jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # jaeger.thrift
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - gh200-network
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: gh200-elasticsearch
+    environment:
+      - node.name=gh200-elasticsearch
+      - cluster.name=gh200-cluster
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - gh200-network
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: gh200-kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_NAME=gh200-kibana
+    depends_on:
+      - elasticsearch
+    networks:
+      - gh200-network
+    restart: unless-stopped
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: gh200-logstash
+    volumes:
+      - ./deployment/logging/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    ports:
+      - "5044:5044"
+    environment:
+      - LS_JAVA_OPTS=-Xmx1g -Xms1g
+    depends_on:
+      - elasticsearch
+    networks:
+      - gh200-network
+    restart: unless-stopped
+
+volumes:
+  gh200_data:
+    driver: local
+  gh200_logs:
+    driver: local
+  gh200_cache:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+
+networks:
+  gh200-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

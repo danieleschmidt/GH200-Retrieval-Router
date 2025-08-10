@@ -1,0 +1,202 @@
+# Production Inventory for GH200 Retrieval Router
+---
+all:
+  children:
+    gh200_cluster:
+      children:
+        kubernetes_masters:
+          hosts:
+            gh200-master-1:
+              ansible_host: 10.0.1.10
+              node_role: master
+              availability_zone: us-west-2a
+            gh200-master-2:
+              ansible_host: 10.0.2.10
+              node_role: master
+              availability_zone: us-west-2b
+            gh200-master-3:
+              ansible_host: 10.0.3.10
+              node_role: master
+              availability_zone: us-west-2c
+              
+        gh200_nodes:
+          hosts:
+            gh200-node-1:
+              ansible_host: 10.0.1.20
+              node_role: worker
+              instance_type: p5.48xlarge
+              gpu_count: 8
+              memory_gb: 768
+              availability_zone: us-west-2a
+              gh200_features:
+                - nvlink
+                - grace_memory
+                - unified_memory
+            gh200-node-2:
+              ansible_host: 10.0.2.20
+              node_role: worker
+              instance_type: p5.48xlarge
+              gpu_count: 8
+              memory_gb: 768
+              availability_zone: us-west-2b
+              gh200_features:
+                - nvlink
+                - grace_memory
+                - unified_memory
+            gh200-node-3:
+              ansible_host: 10.0.3.20
+              node_role: worker
+              instance_type: p5.48xlarge
+              gpu_count: 8
+              memory_gb: 768
+              availability_zone: us-west-2c
+              gh200_features:
+                - nvlink
+                - grace_memory
+                - unified_memory
+            gh200-node-4:
+              ansible_host: 10.0.1.21
+              node_role: worker
+              instance_type: p5.48xlarge
+              gpu_count: 8
+              memory_gb: 768
+              availability_zone: us-west-2a
+              gh200_features:
+                - nvlink
+                - grace_memory
+                - unified_memory
+                
+        system_nodes:
+          hosts:
+            system-node-1:
+              ansible_host: 10.0.1.30
+              node_role: system
+              instance_type: c5.4xlarge
+              availability_zone: us-west-2a
+            system-node-2:
+              ansible_host: 10.0.2.30
+              node_role: system
+              instance_type: c5.4xlarge
+              availability_zone: us-west-2b
+            system-node-3:
+              ansible_host: 10.0.3.30
+              node_role: system
+              instance_type: c5.4xlarge
+              availability_zone: us-west-2c
+              
+        monitoring_nodes:
+          hosts:
+            monitoring-node-1:
+              ansible_host: 10.0.1.40
+              node_role: monitoring
+              instance_type: c5.2xlarge
+              availability_zone: us-west-2a
+              services:
+                - prometheus
+                - grafana
+                - alertmanager
+            monitoring-node-2:
+              ansible_host: 10.0.2.40
+              node_role: monitoring
+              instance_type: c5.2xlarge
+              availability_zone: us-west-2b
+              services:
+                - elasticsearch
+                - kibana
+                - logstash
+                
+        load_balancers:
+          hosts:
+            lb-node-1:
+              ansible_host: 10.0.1.50
+              node_role: loadbalancer
+              instance_type: c5.large
+              availability_zone: us-west-2a
+            lb-node-2:
+              ansible_host: 10.0.2.50
+              node_role: loadbalancer
+              instance_type: c5.large
+              availability_zone: us-west-2b
+
+  vars:
+    # Global variables for all hosts
+    environment: production
+    cluster_name: gh200-retrieval-router-prod
+    region: us-west-2
+    
+    # SSH configuration
+    ansible_user: ec2-user
+    ansible_ssh_private_key_file: ~/.ssh/gh200-prod-key.pem
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+    
+    # System configuration
+    timezone: UTC
+    ntp_servers:
+      - time.aws.com
+      - pool.ntp.org
+      
+    # Security configuration
+    security_hardening: true
+    fail2ban_enabled: true
+    firewall_enabled: true
+    selinux_mode: enforcing
+    
+    # NVIDIA configuration
+    nvidia_driver_version: "535.104.05"
+    cuda_version: "12.2"
+    nvidia_driver_url: "https://us.download.nvidia.com/XFree86/Linux-x86_64/535.104.05/NVIDIA-Linux-x86_64-535.104.05.run"
+    cuda_toolkit_url: "https://developer.download.nvidia.com/compute/cuda/12.2.0/local_installers/cuda_12.2.0_535.54.03_linux.run"
+    
+    # Docker configuration
+    docker_version: "24.0"
+    docker_compose_version: "2.20.2"
+    
+    # Kubernetes configuration
+    kubernetes_version: "1.27"
+    kubectl_version: "1.27.4"
+    helm_version: "3.12.2"
+    
+    # Monitoring configuration
+    prometheus_version: "2.45.0"
+    grafana_version: "10.0.3"
+    node_exporter_version: "1.6.1"
+    
+    # Application configuration
+    gh200_app_version: "1.0.0"
+    gh200_registry: "nvcr.io/terragon"
+    
+    # Performance tuning
+    huge_pages_enabled: true
+    transparent_hugepage: never
+    swappiness: 1
+    
+    # Network configuration
+    network_optimization: true
+    tcp_congestion_control: bbr
+    network_buffers_optimized: true
+    
+    # Storage configuration
+    storage_class: fast-ssd
+    backup_enabled: true
+    backup_retention_days: 30
+    
+    # Compliance configuration
+    gdpr_compliance: true
+    ccpa_compliance: true
+    audit_logging: true
+    data_encryption_at_rest: true
+    data_encryption_in_transit: true
+    
+    # Resource limits
+    max_memory_per_pod: 400Gi
+    max_cpu_per_pod: 16
+    max_gpu_per_pod: 1
+    
+    # Auto-scaling configuration
+    cluster_autoscaler_enabled: true
+    min_nodes_per_az: 1
+    max_nodes_per_az: 8
+    
+    # Notification configuration
+    notification_webhook: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+    notification_email: "alerts@terragon-labs.com"

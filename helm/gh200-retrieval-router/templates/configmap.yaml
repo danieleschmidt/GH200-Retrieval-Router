@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gh200-retrieval-router.fullname" . }}-config
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "gh200-retrieval-router.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+data:
+  NODE_ENV: {{ .Values.config.nodeEnv | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  HOST: {{ .Values.config.host | quote }}
+  PORT: {{ .Values.config.port | quote }}
+  
+  # Performance Configuration
+  ENABLE_GPU_ACCELERATION: {{ .Values.config.performance.enableGpuAcceleration | quote }}
+  GRACE_MEMORY_SIZE: {{ .Values.config.performance.graceMemorySize | quote }}
+  TARGET_QPS: {{ .Values.config.performance.targetQps | quote }}
+  TARGET_RAG_QPS: {{ .Values.config.performance.targetRagQps | quote }}
+  GPU_COUNT: {{ .Values.config.performance.gpuCount | quote }}
+  MAX_BATCH_SIZE: {{ .Values.config.performance.maxBatchSize | quote }}
+  MAX_CACHE_SIZE: {{ .Values.config.performance.maxCacheSize | quote }}
+  ENABLE_PREDICTIVE_CACHE: {{ .Values.config.performance.enablePredictiveCache | quote }}
+  MAX_CLUSTERS: {{ .Values.config.performance.maxClusters | quote }}
+  FEDERATION_STRATEGY: {{ .Values.config.performance.federationStrategy | quote }}
+  
+  # GH200 Specific Configuration
+  GRACE_MEMORY_POOLS: {{ .Values.config.graceHopper.memoryPools | quote }}
+  NVLINK_RINGS: {{ .Values.config.graceHopper.nvlinkRings | quote }}
+  CUDA_STREAMS: {{ .Values.config.graceHopper.cudaStreams | quote }}
+  NVLINK_ENABLED: {{ .Values.config.graceHopper.nvlinkEnabled | quote }}
+  ENABLE_ZERO_COPY: {{ .Values.config.graceHopper.enableZeroCopy | quote }}
+  
+  # Security Configuration
+  RATE_LIMIT_MAX: {{ .Values.config.security.rateLimitMax | quote }}
+  ENABLE_THREAT_DETECTION: {{ .Values.config.security.enableThreatDetection | quote }}
+  GDPR_COMPLIANCE: {{ .Values.config.security.gdprCompliance | quote }}
+  CCPA_COMPLIANCE: {{ .Values.config.security.ccpaCompliance | quote }}
+  DATA_RETENTION_DAYS: {{ .Values.config.security.dataRetentionDays | quote }}
+  
+  # Monitoring Configuration
+  ENABLE_MONITORING: {{ .Values.config.monitoring.enableMonitoring | quote }}
+  PROMETHEUS_METRICS: {{ .Values.config.monitoring.prometheusMetrics | quote }}
+  JAEGER_TRACING: {{ .Values.config.monitoring.jaegerTracing | quote }}
+  ENABLE_BENCHMARKING: {{ .Values.config.monitoring.enableBenchmarking | quote }}
+  ENABLE_AB_TESTING: {{ .Values.config.monitoring.enableAbTesting | quote }}
+  ENABLE_DASHBOARD_WS: {{ .Values.config.monitoring.enableDashboardWs | quote }}
+  DASHBOARD_WS_PORT: {{ .Values.config.monitoring.dashboardWsPort | quote }}
+  
+  # Redis Configuration
+  {{- if .Values.redis.enabled }}
+  REDIS_URL: "redis://{{ include "gh200-retrieval-router.fullname" . }}-redis-master:6379"
+  {{- end }}
+  
+  # Application Configuration
+  production.js: |
+    module.exports = {
+      server: {
+        port: {{ .Values.config.port }},
+        workers: 4,
+        maxConnections: 10000
+      },
+      graceMemory: {
+        totalMemoryGB: {{ .Values.config.performance.graceMemorySize }},
+        enableZeroCopy: {{ .Values.config.graceHopper.enableZeroCopy }},
+        pools: {
+          embeddings: 300 * 1024 * 1024 * 1024,
+          cache: 100 * 1024 * 1024 * 1024,
+          workspace: 80 * 1024 * 1024 * 1024
+        }
+      },
+      nvlink: {
+        enabled: {{ .Values.config.graceHopper.nvlinkEnabled }},
+        bandwidth: 900,
+        rings: {{ .Values.config.graceHopper.nvlinkRings }},
+        asyncTransfers: true
+      },
+      security: {
+        enableThreatDetection: {{ .Values.config.security.enableThreatDetection }},
+        rateLimit: {{ .Values.config.security.rateLimitMax }},
+        enableGDPR: {{ .Values.config.security.gdprCompliance }},
+        enableCCPA: {{ .Values.config.security.ccpaCompliance }}
+      },
+      performance: {
+        maxConcurrency: 5000,
+        cacheSize: {{ .Values.config.performance.maxCacheSize }},
+        targetQPS: {{ .Values.config.performance.targetQps }},
+        targetRAGQPS: {{ .Values.config.performance.targetRagQps }}
+      },
+      monitoring: {
+        prometheus: {{ .Values.config.monitoring.prometheusMetrics }},
+        jaeger: {{ .Values.config.monitoring.jaegerTracing }},
+        metrics: {
+          collection_interval: 5000,
+          retention_days: 30
+        }
+      }
+    };
