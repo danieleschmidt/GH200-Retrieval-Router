@@ -35,6 +35,13 @@ async function initializeRouter(options = {}) {
         const shardManager = new ShardManager(mergedConfig.sharding);
         await shardManager.initialize();
         
+        // Initialize vector database
+        const vectorDatabase = new VectorDatabase({
+            ...mergedConfig.database,
+            graceMemory: true // Boolean flag for Grace memory optimization
+        });
+        await vectorDatabase.initialize();
+        
         // Initialize quantum task planner
         const quantumPlanner = new QuantumTaskPlanner(mergedConfig.quantumPlanning);
         await quantumPlanner.initialize();
@@ -48,6 +55,7 @@ async function initializeRouter(options = {}) {
             config: mergedConfig,
             memoryManager,
             shardManager,
+            vectorDatabase,
             quantumPlanner,
             optimizer
         });

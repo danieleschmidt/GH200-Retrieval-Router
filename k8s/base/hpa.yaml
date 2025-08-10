@@ -1,0 +1,92 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gh200-hpa
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: gh200-retrieval-router
+  minReplicas: 4
+  maxReplicas: 32
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: gh200_requests_per_second
+      target:
+        type: AverageValue
+        averageValue: "100000"
+  - type: Pods
+    pods:
+      metric:
+        name: gh200_response_time_p99
+      target:
+        type: AverageValue
+        averageValue: "50m"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 4
+        periodSeconds: 60
+      selectPolicy: Max
+---
+apiVersion: autoscaling/v2
+kind: VerticalPodAutoscaler
+metadata:
+  name: gh200-vpa
+  namespace: gh200-system
+  labels:
+    app.kubernetes.io/name: gh200-retrieval-router
+    app.kubernetes.io/component: autoscaling
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: gh200-retrieval-router
+  updatePolicy:
+    updateMode: "Auto"
+  resourcePolicy:
+    containerPolicies:
+    - containerName: retrieval-router
+      minAllowed:
+        cpu: 4
+        memory: 100Gi
+        nvidia.com/gpu: 1
+      maxAllowed:
+        cpu: 32
+        memory: 480Gi
+        nvidia.com/gpu: 1
+      controlledResources: ["cpu", "memory"]
+      controlledValues: RequestsAndLimits

@@ -1,0 +1,52 @@
+# GH200 Node Configuration Tasks
+---
+- name: Include OS-specific variables
+  include_vars: "{{ ansible_os_family }}.yml"
+  tags: ['always']
+
+- name: Detect GPU hardware
+  command: lspci | grep -i nvidia
+  register: gpu_detection
+  failed_when: false
+  changed_when: false
+  tags: ['gpu-detection']
+
+- name: Verify GH200 GPU presence
+  assert:
+    that:
+      - gpu_detection.stdout | length > 0
+    fail_msg: "No NVIDIA GPU detected on this system"
+    success_msg: "NVIDIA GPU detected: {{ gpu_detection.stdout_lines | join(', ') }}"
+  tags: ['gpu-detection']
+
+- name: Install NVIDIA drivers and CUDA toolkit
+  include_tasks: install_nvidia_drivers.yml
+  tags: ['nvidia-drivers']
+
+- name: Configure GPU settings
+  include_tasks: configure_gpu.yml  
+  tags: ['gpu-config']
+
+- name: Install Docker with GPU support
+  include_tasks: install_docker_gpu.yml
+  tags: ['docker-gpu']
+
+- name: Configure system optimizations for GH200
+  include_tasks: system_optimization.yml
+  tags: ['system-optimization']
+
+- name: Setup monitoring agents
+  include_tasks: monitoring_agents.yml
+  tags: ['monitoring-agents']
+
+- name: Configure log collection
+  include_tasks: log_collection.yml
+  tags: ['log-collection']
+
+- name: Install security agents
+  include_tasks: security_agents.yml  
+  tags: ['security-agents']
+
+- name: Verify GH200 configuration
+  include_tasks: verify_gh200.yml
+  tags: ['verification']

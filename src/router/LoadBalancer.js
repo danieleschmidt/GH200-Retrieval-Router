@@ -456,6 +456,73 @@ class LoadBalancer extends EventEmitter {
     }
     
     /**
+     * Health check for load balancer
+     * @returns {Object} Health status information
+     */
+    async healthCheck() {
+        const healthStatus = {
+            healthy: this.initialized,
+            timestamp: new Date().toISOString(),
+            initialized: this.initialized,
+            strategy: this.strategy,
+            errors: []
+        };
+
+        if (!this.initialized) {
+            healthStatus.errors.push('LoadBalancer not initialized');
+            return healthStatus;
+        }
+
+        // Check node health
+        let healthyNodes = 0;
+        let totalNodes = 0;
+        
+        for (const [nodeId, stats] of this.nodeStats.entries()) {
+            totalNodes++;
+            if (stats.healthy) {
+                healthyNodes++;
+            }
+        }
+
+        // Check shard health
+        let healthyShards = 0;
+        let totalShards = 0;
+        
+        for (const [shardId, stats] of this.shardStats.entries()) {
+            totalShards++;
+            if (stats.healthy) {
+                healthyShards++;
+            }
+        }
+
+        healthStatus.metrics = {
+            totalNodes,
+            healthyNodes,
+            nodeHealthRate: totalNodes > 0 ? healthyNodes / totalNodes : 0,
+            totalShards,
+            healthyShards,
+            shardHealthRate: totalShards > 0 ? healthyShards / totalShards : 0,
+            healthCheckInterval: this.options.healthCheckInterval
+        };
+
+        // Consider unhealthy if less than 50% nodes/shards are healthy
+        if (healthStatus.metrics.nodeHealthRate < 0.5 || healthStatus.metrics.shardHealthRate < 0.5) {
+            healthStatus.healthy = false;
+            healthStatus.errors.push('Insufficient healthy nodes or shards');
+        }
+
+        return healthStatus;
+    }
+
+    /**
+     * Check if load balancer is ready
+     * @returns {boolean} Readiness status
+     */
+    async isReady() {
+        return this.initialized && this.nodeStats.size > 0;
+    }
+
+    /**
      * Shutdown load balancer
      */
     async shutdown() {

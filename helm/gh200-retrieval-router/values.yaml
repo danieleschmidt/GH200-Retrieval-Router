@@ -1,0 +1,491 @@
+# Default values for gh200-retrieval-router
+# This is a YAML-formatted file.
+
+## @section Global parameters
+##
+global:
+  ## @param global.imageRegistry Global Docker image registry
+  imageRegistry: ""
+  ## @param global.imagePullSecrets Global Docker registry secret names as an array
+  imagePullSecrets: []
+  ## @param global.storageClass Global StorageClass for Persistent Volume(s)
+  storageClass: ""
+
+## @section Common parameters
+##
+## @param kubeVersion Override Kubernetes version
+kubeVersion: ""
+## @param nameOverride String to partially override gh200-retrieval-router.fullname
+nameOverride: ""
+## @param fullnameOverride String to fully override gh200-retrieval-router.fullname
+fullnameOverride: ""
+
+## @section GH200 Retrieval Router Configuration
+##
+image:
+  ## @param image.registry GH200 image registry
+  registry: nvcr.io
+  ## @param image.repository GH200 image repository
+  repository: terragon/gh200-retrieval-router
+  ## @param image.tag GH200 image tag (immutable tags are recommended)
+  tag: "1.0.0"
+  ## @param image.pullPolicy GH200 image pull policy
+  pullPolicy: IfNotPresent
+  ## @param image.pullSecrets GH200 image pull secrets
+  pullSecrets: []
+
+## @section Deployment Configuration
+##
+deployment:
+  ## @param deployment.replicaCount Number of GH200 replicas to deploy
+  replicaCount: 4
+  ## @param deployment.strategy.type Deployment strategy type
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+## @section Resource allocation
+##
+resources:
+  ## @param resources.limits Resource limits for GH200 containers
+  limits:
+    cpu: "16"
+    memory: "400Gi"
+    nvidia.com/gpu: 1
+  ## @param resources.requests Resource requests for GH200 containers
+  requests:
+    cpu: "8" 
+    memory: "200Gi"
+    nvidia.com/gpu: 1
+
+## @section Node Selection
+##
+nodeSelector:
+  ## @param nodeSelector GH200 specific node selector
+  nvidia.com/gpu.product: "NVIDIA-GH200-480GB"
+  kubernetes.io/arch: "arm64"
+
+## @param tolerations Tolerations for GH200 pod assignment
+tolerations:
+- key: nvidia.com/gpu
+  operator: Exists
+  effect: NoSchedule
+- key: gh200-node
+  operator: Equal
+  value: "true"
+  effect: NoSchedule
+
+## @param affinity Affinity for GH200 pod assignment
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: gh200-retrieval-router
+        topologyKey: kubernetes.io/hostname
+
+## @section Application Configuration
+##
+config:
+  ## @param config.nodeEnv Node.js environment
+  nodeEnv: "production"
+  ## @param config.logLevel Logging level
+  logLevel: "info"
+  ## @param config.port Application port
+  port: 8080
+  ## @param config.host Application host
+  host: "0.0.0.0"
+  
+  ## @section Performance Configuration
+  performance:
+    ## @param config.performance.enableGpuAcceleration Enable GPU acceleration
+    enableGpuAcceleration: true
+    ## @param config.performance.graceMemorySize Grace memory size in GB
+    graceMemorySize: 480
+    ## @param config.performance.targetQps Target QPS
+    targetQps: 125000
+    ## @param config.performance.targetRagQps Target RAG QPS
+    targetRagQps: 450
+    ## @param config.performance.gpuCount Number of GPUs
+    gpuCount: 4
+    ## @param config.performance.maxBatchSize Maximum batch size
+    maxBatchSize: 32768
+    ## @param config.performance.maxCacheSize Maximum cache size in bytes
+    maxCacheSize: 10737418240
+    ## @param config.performance.enablePredictiveCache Enable predictive caching
+    enablePredictiveCache: true
+    ## @param config.performance.maxClusters Maximum clusters for federation
+    maxClusters: 10
+    ## @param config.performance.federationStrategy Federation strategy
+    federationStrategy: "adaptive"
+  
+  ## @section GH200 Specific Configuration
+  graceHopper:
+    ## @param config.graceHopper.memoryPools Grace memory pool allocation
+    memoryPools: "embeddings:300,cache:100,workspace:80"
+    ## @param config.graceHopper.nvlinkRings Number of NVLink rings
+    nvlinkRings: 4
+    ## @param config.graceHopper.cudaStreams Number of CUDA streams
+    cudaStreams: 16
+    ## @param config.graceHopper.nvlinkEnabled Enable NVLink
+    nvlinkEnabled: true
+    ## @param config.graceHopper.enableZeroCopy Enable zero-copy operations
+    enableZeroCopy: true
+  
+  ## @section Security Configuration
+  security:
+    ## @param config.security.rateLimitMax Rate limit maximum
+    rateLimitMax: 10000
+    ## @param config.security.enableThreatDetection Enable threat detection
+    enableThreatDetection: true
+    ## @param config.security.gdprCompliance GDPR compliance
+    gdprCompliance: true
+    ## @param config.security.ccpaCompliance CCPA compliance
+    ccpaCompliance: true
+    ## @param config.security.dataRetentionDays Data retention period in days
+    dataRetentionDays: 365
+  
+  ## @section Monitoring Configuration
+  monitoring:
+    ## @param config.monitoring.enableMonitoring Enable monitoring
+    enableMonitoring: true
+    ## @param config.monitoring.prometheusMetrics Enable Prometheus metrics
+    prometheusMetrics: true
+    ## @param config.monitoring.jaegerTracing Enable Jaeger tracing
+    jaegerTracing: true
+    ## @param config.monitoring.enableBenchmarking Enable benchmarking
+    enableBenchmarking: true
+    ## @param config.monitoring.enableAbTesting Enable A/B testing
+    enableAbTesting: true
+    ## @param config.monitoring.enableDashboardWs Enable dashboard WebSocket
+    enableDashboardWs: true
+    ## @param config.monitoring.dashboardWsPort Dashboard WebSocket port
+    dashboardWsPort: 8081
+
+## @section Service Configuration
+##
+service:
+  ## @param service.type Service type
+  type: ClusterIP
+  ## @param service.port Service port
+  port: 8080
+  ## @param service.targetPort Service target port
+  targetPort: http
+  ## @param service.protocol Service protocol
+  protocol: TCP
+  ## @param service.annotations Service annotations
+  annotations: {}
+  ## @param service.labels Service labels
+  labels: {}
+  ## @param service.sessionAffinity Service session affinity
+  sessionAffinity: None
+
+## @section Ingress Configuration
+##
+ingress:
+  ## @param ingress.enabled Enable ingress
+  enabled: true
+  ## @param ingress.className Ingress class name
+  className: "nginx"
+  ## @param ingress.annotations Ingress annotations
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/rate-limit: "1000"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/limit-connections: "100"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  ## @param ingress.hosts Ingress hosts configuration
+  hosts:
+  - host: gh200.example.com
+    paths:
+    - path: /
+      pathType: Prefix
+  - host: api.gh200.example.com
+    paths:
+    - path: /api
+      pathType: Prefix
+    - path: /health
+      pathType: Exact
+    - path: /metrics  
+      pathType: Exact
+  ## @param ingress.tls Ingress TLS configuration
+  tls:
+  - secretName: gh200-tls
+    hosts:
+    - gh200.example.com
+    - api.gh200.example.com
+
+## @section Persistence Configuration
+##
+persistence:
+  ## @param persistence.enabled Enable persistence
+  enabled: true
+  ## @param persistence.storageClass Storage class
+  storageClass: "fast-ssd"
+  ## @param persistence.accessMode Access mode
+  accessMode: ReadWriteOnce
+  ## @param persistence.size Storage size
+  size: 1Ti
+  ## @param persistence.annotations Storage annotations
+  annotations: {}
+
+## @section Auto Scaling Configuration
+##
+autoscaling:
+  ## @param autoscaling.enabled Enable Horizontal Pod Autoscaler
+  enabled: true
+  ## @param autoscaling.minReplicas Minimum number of replicas
+  minReplicas: 4
+  ## @param autoscaling.maxReplicas Maximum number of replicas
+  maxReplicas: 32
+  ## @param autoscaling.targetCPUUtilizationPercentage Target CPU utilization percentage
+  targetCPUUtilizationPercentage: 70
+  ## @param autoscaling.targetMemoryUtilizationPercentage Target memory utilization percentage
+  targetMemoryUtilizationPercentage: 80
+  ## @param autoscaling.behavior HPA scaling behavior
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 4
+        periodSeconds: 60
+
+## @section Vertical Pod Autoscaler Configuration
+##
+vpa:
+  ## @param vpa.enabled Enable Vertical Pod Autoscaler
+  enabled: true
+  ## @param vpa.updateMode VPA update mode
+  updateMode: "Auto"
+  ## @param vpa.minAllowed Minimum allowed resources
+  minAllowed:
+    cpu: 4
+    memory: 100Gi
+    nvidia.com/gpu: 1
+  ## @param vpa.maxAllowed Maximum allowed resources
+  maxAllowed:
+    cpu: 32
+    memory: 480Gi
+    nvidia.com/gpu: 1
+
+## @section Health Check Configuration
+##
+healthcheck:
+  ## @param healthcheck.livenessProbe.enabled Enable liveness probe
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+    successThreshold: 1
+  ## @param healthcheck.readinessProbe.enabled Enable readiness probe
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+  ## @param healthcheck.startupProbe.enabled Enable startup probe
+  startupProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+    successThreshold: 1
+
+## @section Security Context
+##
+securityContext:
+  ## @param securityContext.runAsNonRoot Run as non-root user
+  runAsNonRoot: true
+  ## @param securityContext.runAsUser User ID
+  runAsUser: 1000
+  ## @param securityContext.runAsGroup Group ID
+  runAsGroup: 1000
+  ## @param securityContext.fsGroup File system group ID
+  fsGroup: 1000
+  ## @param securityContext.allowPrivilegeEscalation Allow privilege escalation
+  allowPrivilegeEscalation: false
+  ## @param securityContext.readOnlyRootFilesystem Read-only root filesystem
+  readOnlyRootFilesystem: false
+  ## @param securityContext.capabilities.drop Capabilities to drop
+  capabilities:
+    drop:
+    - ALL
+
+## @section Pod Disruption Budget
+##
+podDisruptionBudget:
+  ## @param podDisruptionBudget.enabled Enable Pod Disruption Budget
+  enabled: true
+  ## @param podDisruptionBudget.minAvailable Minimum available pods
+  minAvailable: 3
+  ## @param podDisruptionBudget.maxUnavailable Maximum unavailable pods
+  maxUnavailable: ""
+
+## @section Network Policy
+##
+networkPolicy:
+  ## @param networkPolicy.enabled Enable Network Policy
+  enabled: true
+  ## @param networkPolicy.ingress Ingress rules
+  ingress:
+    enabled: true
+    from:
+    - namespaceSelector:
+        matchLabels:
+          name: nginx-ingress
+    - namespaceSelector:
+        matchLabels:
+          name: gh200-monitoring
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: gh200-retrieval-router
+  ## @param networkPolicy.egress Egress rules
+  egress:
+    enabled: true
+    to: []
+
+## @section Service Account
+##
+serviceAccount:
+  ## @param serviceAccount.create Create service account
+  create: true
+  ## @param serviceAccount.annotations Service account annotations
+  annotations: {}
+  ## @param serviceAccount.name Service account name
+  name: ""
+  ## @param serviceAccount.automountServiceAccountToken Auto-mount service account token
+  automountServiceAccountToken: true
+
+## @section RBAC Configuration
+##
+rbac:
+  ## @param rbac.create Create RBAC resources
+  create: true
+
+## @section Secrets Configuration
+##
+secrets:
+  ## @param secrets.create Create secrets
+  create: true
+  ## @param secrets.annotations Secrets annotations
+  annotations: {}
+  ## @param secrets.data Secret data (base64 encoded)
+  data:
+    redisPassword: "Y2hhbmdlbWUtcmVkaXMtcGFzc3dvcmQ="
+    apiSecretKey: "Y2hhbmdlbWUtYXBpLXNlY3JldC1rZXk="
+    jwtSecret: "Y2hhbmdlbWUtand0LXNlY3JldA=="
+    encryptionKey: "Y2hhbmdlbWUtZW5jcnlwdGlvbi1rZXk="
+
+## @section Dependencies Configuration
+##
+
+## Redis configuration
+redis:
+  ## @param redis.enabled Enable Redis
+  enabled: true
+  ## @param redis.architecture Redis architecture
+  architecture: standalone
+  auth:
+    ## @param redis.auth.enabled Enable Redis auth
+    enabled: true
+    ## @param redis.auth.password Redis password
+    password: "changeme-redis-password"
+  master:
+    ## @param redis.master.resources.limits Redis resource limits
+    resources:
+      limits:
+        cpu: 2
+        memory: 4Gi
+      requests:
+        cpu: 1
+        memory: 2Gi
+
+## Prometheus configuration
+prometheus:
+  ## @param prometheus.enabled Enable Prometheus
+  enabled: true
+  server:
+    ## @param prometheus.server.resources Prometheus server resources
+    resources:
+      limits:
+        cpu: 4
+        memory: 8Gi
+      requests:
+        cpu: 2
+        memory: 4Gi
+    ## @param prometheus.server.retention Prometheus retention
+    retention: "30d"
+
+## Grafana configuration
+grafana:
+  ## @param grafana.enabled Enable Grafana
+  enabled: true
+  ## @param grafana.adminPassword Grafana admin password
+  adminPassword: "admin"
+  ## @param grafana.resources Grafana resources
+  resources:
+    limits:
+      cpu: 2
+      memory: 4Gi
+    requests:
+      cpu: 1
+      memory: 2Gi
+
+## Elasticsearch configuration
+elasticsearch:
+  ## @param elasticsearch.enabled Enable Elasticsearch
+  enabled: true
+  ## @param elasticsearch.coordinating.replicaCount Coordinating nodes replica count
+  coordinating:
+    replicaCount: 2
+  ## @param elasticsearch.data.replicaCount Data nodes replica count
+  data:
+    replicaCount: 3
+  ## @param elasticsearch.master.replicaCount Master nodes replica count
+  master:
+    replicaCount: 3
+
+## Jaeger configuration
+jaeger:
+  ## @param jaeger.enabled Enable Jaeger
+  enabled: true
+  ## @param jaeger.strategy Jaeger deployment strategy
+  strategy: allinone
+  ## @param jaeger.allInOne.resources Jaeger all-in-one resources
+  allInOne:
+    resources:
+      limits:
+        cpu: 2
+        memory: 4Gi
+      requests:
+        cpu: 1
+        memory: 2Gi

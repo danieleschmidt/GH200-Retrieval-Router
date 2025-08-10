@@ -416,6 +416,143 @@ class RetrievalRouter extends EventEmitter {
             throw error;
         }
     }
+
+    /**
+     * Health check for the retrieval router
+     * @returns {Object} Health status information
+     */
+    async healthCheck() {
+        const healthStatus = {
+            healthy: true,
+            timestamp: new Date().toISOString(),
+            components: {},
+            errors: []
+        };
+
+        try {
+            // Check initialization status
+            if (!this.initialized) {
+                healthStatus.healthy = false;
+                healthStatus.errors.push('Router not initialized');
+                return healthStatus;
+            }
+
+            // Check semantic router
+            if (this.semanticRouter) {
+                try {
+                    const semanticHealth = await this.semanticRouter.healthCheck();
+                    healthStatus.components.semanticRouter = semanticHealth;
+                    if (!semanticHealth.healthy) {
+                        healthStatus.healthy = false;
+                        healthStatus.errors.push('Semantic router unhealthy');
+                    }
+                } catch (error) {
+                    healthStatus.components.semanticRouter = { healthy: false, error: error.message };
+                    healthStatus.healthy = false;
+                    healthStatus.errors.push(`Semantic router error: ${error.message}`);
+                }
+            }
+
+            // Check query optimizer
+            if (this.queryOptimizer) {
+                try {
+                    const optimizerHealth = await this.queryOptimizer.healthCheck();
+                    healthStatus.components.queryOptimizer = optimizerHealth;
+                    if (!optimizerHealth.healthy) {
+                        healthStatus.healthy = false;
+                        healthStatus.errors.push('Query optimizer unhealthy');
+                    }
+                } catch (error) {
+                    healthStatus.components.queryOptimizer = { healthy: false, error: error.message };
+                    healthStatus.healthy = false;
+                    healthStatus.errors.push(`Query optimizer error: ${error.message}`);
+                }
+            }
+
+            // Check load balancer
+            if (this.loadBalancer) {
+                try {
+                    const balancerHealth = await this.loadBalancer.healthCheck();
+                    healthStatus.components.loadBalancer = balancerHealth;
+                    if (!balancerHealth.healthy) {
+                        healthStatus.healthy = false;
+                        healthStatus.errors.push('Load balancer unhealthy');
+                    }
+                } catch (error) {
+                    healthStatus.components.loadBalancer = { healthy: false, error: error.message };
+                    healthStatus.healthy = false;
+                    healthStatus.errors.push(`Load balancer error: ${error.message}`);
+                }
+            }
+
+            // Check databases
+            for (const [name, database] of this.databases) {
+                try {
+                    const dbHealth = await database.healthCheck();
+                    healthStatus.components[`database_${name}`] = dbHealth;
+                    if (!dbHealth.healthy) {
+                        healthStatus.healthy = false;
+                        healthStatus.errors.push(`Database ${name} unhealthy`);
+                    }
+                } catch (error) {
+                    healthStatus.components[`database_${name}`] = { healthy: false, error: error.message };
+                    healthStatus.healthy = false;
+                    healthStatus.errors.push(`Database ${name} error: ${error.message}`);
+                }
+            }
+
+            // Add performance metrics
+            healthStatus.metrics = {
+                totalQueries: this.stats.totalQueries,
+                successfulQueries: this.stats.successfulQueries,
+                failedQueries: this.stats.failedQueries,
+                averageLatency: this.stats.averageLatency,
+                throughput: this.stats.throughput,
+                activeDatabases: this.databases.size,
+                activeConnections: this.activeConnections.size
+            };
+
+        } catch (error) {
+            healthStatus.healthy = false;
+            healthStatus.errors.push(`Health check error: ${error.message}`);
+            logger.error('Router health check failed', { error: error.message });
+        }
+
+        return healthStatus;
+    }
+
+    /**
+     * Check if router is ready to serve requests
+     * @returns {boolean} Readiness status
+     */
+    async isReady() {
+        try {
+            if (!this.initialized) {
+                return false;
+            }
+
+            // Check if critical components are ready
+            const checks = [];
+            
+            if (this.semanticRouter && typeof this.semanticRouter.isReady === 'function') {
+                checks.push(this.semanticRouter.isReady());
+            }
+            
+            if (this.queryOptimizer && typeof this.queryOptimizer.isReady === 'function') {
+                checks.push(this.queryOptimizer.isReady());
+            }
+            
+            if (this.loadBalancer && typeof this.loadBalancer.isReady === 'function') {
+                checks.push(this.loadBalancer.isReady());
+            }
+
+            const results = await Promise.all(checks);
+            return results.every(ready => ready === true);
+        } catch (error) {
+            logger.error('Router readiness check failed', { error: error.message });
+            return false;
+        }
+    }
 }
 
 module.exports = { RetrievalRouter };

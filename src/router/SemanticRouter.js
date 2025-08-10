@@ -329,6 +329,30 @@ class SemanticRouter {
     }
     
     /**
+     * Health check for semantic router
+     * @returns {Object} Health status information
+     */
+    async healthCheck() {
+        return {
+            healthy: this.initialized,
+            timestamp: new Date().toISOString(),
+            initialized: this.initialized,
+            embeddingModel: this.options.embeddingModel,
+            cacheSize: this.embeddingCache.size,
+            clusterCount: this.clusterCentroids.size,
+            errors: this.initialized ? [] : ['SemanticRouter not initialized']
+        };
+    }
+
+    /**
+     * Check if semantic router is ready
+     * @returns {boolean} Readiness status
+     */
+    async isReady() {
+        return this.initialized;
+    }
+
+    /**
      * Shutdown semantic router
      */
     async shutdown() {

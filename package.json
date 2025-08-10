@@ -70,7 +70,7 @@
   "devDependencies": {
     "0x": "^4.1.4",
     "benchmark": "^2.1.4",
-    "clinic": "^9.1.0",
+    "clinic": "^13.0.0",
     "eslint": "^8.43.0",
     "eslint-config-standard": "^17.1.0",
     "eslint-plugin-import": "^2.27.5",

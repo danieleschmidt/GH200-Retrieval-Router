@@ -1,0 +1,90 @@
+# Main site playbook for GH200 Retrieval Router deployment
+---
+- name: Configure GH200 Infrastructure
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  vars:
+    deployment_environment: "{{ environment | default('production') }}"
+    cluster_name: "{{ gh200_cluster_name | default('gh200-retrieval-router') }}"
+    
+  pre_tasks:
+    - name: Validate deployment environment
+      assert:
+        that:
+          - deployment_environment in ['development', 'staging', 'production']
+        fail_msg: "Invalid deployment environment: {{ deployment_environment }}"
+    
+    - name: Display deployment information
+      debug:
+        msg:
+          - "Deploying GH200 Retrieval Router"
+          - "Environment: {{ deployment_environment }}"
+          - "Cluster: {{ cluster_name }}"
+          - "Target hosts: {{ inventory_hostname }}"
+    
+    - name: Update system packages
+      package:
+        name: '*'
+        state: latest
+      when: ansible_os_family == "RedHat"
+      
+    - name: Install base packages
+      package:
+        name:
+          - curl
+          - wget
+          - git
+          - unzip
+          - jq
+          - htop
+          - vim
+          - rsync
+        state: present
+
+  roles:
+    - role: security
+      tags: ['security', 'hardening']
+    - role: gh200-node
+      tags: ['gpu', 'nvidia', 'gh200']
+      when: inventory_hostname in groups['gh200_nodes']
+    - role: kubernetes
+      tags: ['kubernetes', 'k8s']
+    - role: monitoring
+      tags: ['monitoring', 'observability']
+  
+  post_tasks:
+    - name: Verify deployment
+      include_tasks: tasks/verify_deployment.yml
+      tags: ['verification']
+    
+    - name: Send deployment notification
+      uri:
+        url: "{{ notification_webhook | default('') }}"
+        method: POST
+        body_format: json
+        body:
+          text: "GH200 Deployment completed on {{ inventory_hostname }}"
+          environment: "{{ deployment_environment }}"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+      when: notification_webhook is defined
+      ignore_errors: yes
+
+- name: Deploy GH200 Retrieval Router Application
+  hosts: kubernetes_masters
+  gather_facts: no
+  become: yes
+  
+  tasks:
+    - name: Apply Kubernetes manifests
+      include_tasks: tasks/deploy_application.yml
+      tags: ['app-deployment']
+      
+    - name: Configure monitoring
+      include_tasks: tasks/setup_monitoring.yml  
+      tags: ['monitoring-setup']
+      
+    - name: Run health checks
+      include_tasks: tasks/health_checks.yml
+      tags: ['health-checks']
