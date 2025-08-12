@@ -15,6 +15,8 @@ const { QuantumI18n } = require('./QuantumI18n');
 const { QuantumCompliance } = require('./QuantumCompliance');
 const { QuantumRegionManager, RegionError } = require('./QuantumRegionManager');
 const { QuantumHealthCheck } = require('./QuantumHealthCheck');
+const { QuantumReliabilityManager } = require('./QuantumReliabilityManager');
+const { QuantumTimeoutManager } = require('./QuantumTimeoutManager');
 
 module.exports = {
     QuantumTaskPlanner,
@@ -31,5 +33,7 @@ module.exports = {
     QuantumCompliance,
     QuantumRegionManager,
     RegionError,
-    QuantumHealthCheck
+    QuantumHealthCheck,
+    QuantumReliabilityManager,
+    QuantumTimeoutManager
 };

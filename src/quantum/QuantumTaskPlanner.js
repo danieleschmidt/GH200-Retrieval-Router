@@ -354,38 +354,74 @@ class QuantumTaskPlanner extends EventEmitter {
     async performQuantumMeasurement() {
         const measurements = [];
         const errors = [];
+        const measurementStartTime = Date.now();
         
         try {
-            for (const [taskId, state] of this.quantumStates) {
-                try {
-                    if (this.shouldMeasure(state)) {
-                        const measurement = await this.measureQuantumState(taskId, state);
-                        if (measurement) {
-                            measurements.push(measurement);
+            // Use Array.from to avoid iterator invalidation during measurement
+            const states = Array.from(this.quantumStates.entries());
+            
+            // Process measurements in controlled batches to prevent resource exhaustion
+            const batchSize = Math.min(10, states.length);
+            
+            for (let i = 0; i < states.length; i += batchSize) {
+                const batch = states.slice(i, i + batchSize);
+                
+                const batchPromises = batch.map(async ([taskId, state]) => {
+                    try {
+                        if (this.shouldMeasure(state)) {
+                            const measurement = await this.measureQuantumState(taskId, state);
+                            if (measurement) {
+                                return { type: 'measurement', data: measurement };
+                            }
+                        }
+                        return null;
+                    } catch (error) {
+                        logger.warn('Failed to measure quantum state', { 
+                            taskId, 
+                            error: error.message 
+                        });
+                        
+                        // Attempt recovery for corrupted quantum state
+                        try {
+                            this.reinitializeQuantumState(taskId, state);
+                            logger.info('Recovered quantum state after measurement error', { taskId });
+                        } catch (recoveryError) {
+                            logger.error('Failed to recover quantum state', { 
+                                taskId, 
+                                recoveryError: recoveryError.message 
+                            });
+                        }
+                        
+                        return { type: 'error', data: { taskId, error: error.message } };
+                    }
+                });
+                
+                // Process batch with timeout
+                const batchResults = await Promise.allSettled(batchPromises);
+                
+                for (const result of batchResults) {
+                    if (result.status === 'fulfilled' && result.value) {
+                        if (result.value.type === 'measurement') {
+                            measurements.push(result.value.data);
+                        } else if (result.value.type === 'error') {
+                            errors.push(result.value.data);
                         }
                     }
-                } catch (error) {
-                    logger.warn('Failed to measure quantum state', { 
-                        taskId, 
-                        error: error.message 
-                    });
-                    errors.push({ taskId, error: error.message });
-                    
-                    // Attempt recovery for corrupted quantum state
-                    try {
-                        this.reinitializeQuantumState(taskId, state);
-                        logger.info('Recovered quantum state after measurement error', { taskId });
-                    } catch (recoveryError) {
-                        logger.error('Failed to recover quantum state', { 
-                            taskId, 
-                            recoveryError: recoveryError.message 
-                        });
-                    }
+                }
+                
+                // Add small delay between batches to prevent overwhelming
+                if (i + batchSize < states.length) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
                 }
             }
             
             if (measurements.length > 0) {
+                // Limit measurement history to prevent memory leaks
                 this.measurements.push(...measurements);
+                if (this.measurements.length > 1000) {
+                    this.measurements.splice(0, this.measurements.length - 1000);
+                }
+                
                 this.emit('measurementComplete', measurements);
                 
                 if (this.config.adaptiveLearning) {
@@ -403,9 +439,20 @@ class QuantumTaskPlanner extends EventEmitter {
                 this.emit('measurementErrors', errors);
             }
             
+            // Log performance metrics
+            const measurementDuration = Date.now() - measurementStartTime;
+            if (measurementDuration > 5000) {
+                logger.warn('Quantum measurement cycle took too long', { 
+                    duration: measurementDuration,
+                    statesCount: states.length,
+                    measurementsCount: measurements.length
+                });
+            }
+            
         } catch (error) {
             logger.error('Critical error in quantum measurement process', { 
-                error: error.message 
+                error: error.message,
+                duration: Date.now() - measurementStartTime
             });
             this.emit('criticalError', error);
             throw error;
@@ -792,23 +839,44 @@ class QuantumTaskPlanner extends EventEmitter {
     }
 
     async shutdown() {
-        if (this.measurementTimer) {
-            clearInterval(this.measurementTimer);
-            this.measurementTimer = null;
+        if (!this.isInitialized) {
+            return;
         }
         
-        if (this.coherenceTimer) {
-            clearInterval(this.coherenceTimer);
-            this.coherenceTimer = null;
+        logger.info('Shutting down Quantum Task Planner');
+        
+        try {
+            // Clear timers first to prevent new operations
+            if (this.measurementTimer) {
+                clearInterval(this.measurementTimer);
+                this.measurementTimer = null;
+            }
+            
+            if (this.coherenceTimer) {
+                clearInterval(this.coherenceTimer);
+                this.coherenceTimer = null;
+            }
+            
+            // Wait a brief moment for any in-flight operations to complete
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // Clear data structures
+            this.taskRegistry.clear();
+            this.quantumStates.clear();
+            this.entanglements.clear();
+            this.measurements.length = 0;
+            
+            this.isInitialized = false;
+            this.emit('shutdown');
+            
+            logger.info('Quantum Task Planner shutdown complete');
+            
+        } catch (error) {
+            logger.error('Error during Quantum Task Planner shutdown', { 
+                error: error.message 
+            });
+            throw error;
         }
-        
-        this.taskRegistry.clear();
-        this.quantumStates.clear();
-        this.entanglements.clear();
-        this.measurements.length = 0;
-        
-        this.isInitialized = false;
-        this.emit('shutdown');
     }
 
     getMetrics() {

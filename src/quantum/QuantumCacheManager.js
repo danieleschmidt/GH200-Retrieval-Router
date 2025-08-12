@@ -50,6 +50,7 @@ class QuantumCacheManager {
         };
 
         this.isRunning = false;
+        this.isInitialized = false;
         this.maintainInterval = null;
 
         if (this.config.compressionEnabled) {
@@ -64,7 +65,7 @@ class QuantumCacheManager {
     }
 
     async initialize() {
-        if (this.isRunning) return;
+        if (this.isRunning || this.isInitialized) return;
 
         logger.info('Initializing Quantum Cache Manager', {
             maxSize: this.config.maxSize,
@@ -73,10 +74,17 @@ class QuantumCacheManager {
         });
 
         this.maintainInterval = setInterval(() => {
-            this.maintainCoherence();
+            try {
+                this.maintainCoherence();
+            } catch (error) {
+                logger.error('Coherence maintenance error', { error: error.message });
+            }
         }, Math.min(60000, this.config.coherenceTimeMs / 5));
 
         this.isRunning = true;
+        this.isInitialized = true;
+        
+        logger.info('Quantum Cache Manager initialized successfully');
     }
 
     async cacheTask(taskId, task, metadata = {}) {
@@ -251,7 +259,18 @@ class QuantumCacheManager {
         if (entanglements.length > 0) {
             this.entanglementIndex.set(taskId, entanglements);
             
+            // Create bidirectional entanglements for better coherence
             for (const entanglement of entanglements) {
+                const existingEntanglements = this.entanglementIndex.get(entanglement.taskId) || [];
+                existingEntanglements.push({
+                    taskId: taskId,
+                    type: entanglement.type,
+                    strength: entanglement.strength,
+                    bidirectional: true,
+                    createdAt: Date.now()
+                });
+                this.entanglementIndex.set(entanglement.taskId, existingEntanglements);
+                
                 this.prefetchQueue.push({
                     taskId: entanglement.taskId,
                     reason: `entangled_with_${taskId}`,
@@ -259,6 +278,12 @@ class QuantumCacheManager {
                     timestamp: Date.now()
                 });
             }
+            
+            logger.debug('Quantum entanglements created', {
+                taskId,
+                entanglements: entanglements.length,
+                totalEntanglements: this.entanglementIndex.size
+            });
         }
     }
 
@@ -729,15 +754,33 @@ class QuantumCacheManager {
     }
 
     async shutdown() {
-        if (this.maintainInterval) {
-            clearInterval(this.maintainInterval);
-            this.maintainInterval = null;
+        if (!this.isInitialized) {
+            return;
         }
         
-        this.invalidateAll();
-        this.isRunning = false;
+        logger.info('Shutting down Quantum Cache Manager');
         
-        logger.info('Quantum Cache Manager shutdown completed');
+        try {
+            if (this.maintainInterval) {
+                clearInterval(this.maintainInterval);
+                this.maintainInterval = null;
+            }
+            
+            // Wait for any pending operations
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
+            this.invalidateAll();
+            this.isRunning = false;
+            this.isInitialized = false;
+            
+            logger.info('Quantum Cache Manager shutdown completed');
+            
+        } catch (error) {
+            logger.error('Error during Quantum Cache Manager shutdown', { 
+                error: error.message 
+            });
+            throw error;
+        }
     }
 }
 
