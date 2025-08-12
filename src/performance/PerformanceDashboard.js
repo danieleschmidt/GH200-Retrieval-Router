@@ -1019,7 +1019,7 @@ class PerformanceDashboard extends EventEmitter {
             };
         }
         
-        function updateDashboard(data) {
+        function updateDashboard(_data) {
             if (data.snapshot) {
                 updateMetrics(data.snapshot.rawMetrics);
             }
@@ -1029,7 +1029,7 @@ class PerformanceDashboard extends EventEmitter {
             }
         }
         
-        function updateMetrics(metrics) {
+        function updateMetrics(_metrics) {
             const grid = document.getElementById('metricsGrid');
             grid.innerHTML = '';
             
@@ -1057,7 +1057,7 @@ class PerformanceDashboard extends EventEmitter {
             });
         }
         
-        function updateAlerts(alerts) {
+        function updateAlerts(_alerts) {
             const container = document.getElementById('alertsContainer');
             
             if (alerts.length === 0) {

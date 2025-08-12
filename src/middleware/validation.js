@@ -190,7 +190,7 @@ const sanitizeInput = (req, res, next) => {
 /**
  * Parse size string to bytes
  */
-function parseSize(size) {
+function parseSize(_size) {
   const units = {
     'b': 1,
     'kb': 1024,
