@@ -91,6 +91,20 @@ class QuantumPoolManager extends EventEmitter {
         if (successful === 0) {
             throw new Error('Failed to create any initial resources');
         }
+        
+        // If we didn't create enough resources due to failures, attempt to create more
+        const deficit = this.config.initialSize - successful;
+        if (deficit > 0 && successful > 0) {
+            logger.info('Creating additional resources to meet initial size requirement', { deficit });
+            
+            for (let i = 0; i < deficit; i++) {
+                try {
+                    await this.createResource();
+                } catch (error) {
+                    logger.warn('Failed to create additional resource', { error: error.message });
+                }
+            }
+        }
     }
 
     async createResource() {
@@ -705,21 +719,26 @@ class QuantumPoolManager extends EventEmitter {
         const utilizationRate = this.calculateUtilizationRate();
         const waitingQueueSize = this.waitingQueue.length;
         const averageAcquireTime = this.metrics.averageAcquireTime;
+        const currentSize = this.resources.size;
 
         let shouldScaleUp = false;
         let shouldScaleDown = false;
 
-        if (utilizationRate > 0.8 || waitingQueueSize > 5 || averageAcquireTime > 5000) {
+        // More aggressive scaling up if we're below minimum expected size
+        if (currentSize < this.config.initialSize && currentSize < this.config.maxSize) {
             shouldScaleUp = true;
-        } else if (utilizationRate < 0.3 && waitingQueueSize === 0 && this.resources.size > this.config.minSize) {
+        } else if (utilizationRate > 0.8 || waitingQueueSize > 5 || averageAcquireTime > 5000) {
+            shouldScaleUp = true;
+        } else if (utilizationRate < 0.3 && waitingQueueSize === 0 && currentSize > this.config.minSize) {
             shouldScaleDown = true;
         }
 
-        if (shouldScaleUp && this.resources.size < this.config.maxSize) {
-            const scalingAmount = Math.min(3, this.config.maxSize - this.resources.size);
+        if (shouldScaleUp && currentSize < this.config.maxSize) {
+            const deficit = Math.max(1, this.config.initialSize - currentSize);
+            const scalingAmount = Math.min(Math.max(3, deficit), this.config.maxSize - currentSize);
             this.scaleUp(scalingAmount);
         } else if (shouldScaleDown) {
-            const scalingAmount = Math.min(2, this.resources.size - this.config.minSize);
+            const scalingAmount = Math.min(2, currentSize - this.config.minSize);
             this.scaleDown(scalingAmount);
         }
     }

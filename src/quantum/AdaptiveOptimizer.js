@@ -100,8 +100,23 @@ class AdaptiveOptimizer extends EventEmitter {
                 throw new Error('Duration must be a positive number');
             }
             
+            // Check for duplicate executions to prevent double counting
+            const timestamp = executionData.timestamp || Date.now();
+            const isDuplicate = this.executionHistory.some(exec => 
+                exec.taskId === executionData.taskId && 
+                Math.abs(exec.timestamp - timestamp) < 100 // Allow 100ms tolerance
+            );
+            
+            if (isDuplicate) {
+                logger.debug('Duplicate execution record ignored', { 
+                    taskId: executionData.taskId,
+                    timestamp
+                });
+                return;
+            }
+            
             const record = {
-                timestamp: executionData.timestamp || Date.now(),
+                timestamp: timestamp,
                 taskId: executionData.taskId,
                 duration: Math.max(0, executionData.duration || 0),
                 resourceUsage: executionData.resourceUsage || {},
