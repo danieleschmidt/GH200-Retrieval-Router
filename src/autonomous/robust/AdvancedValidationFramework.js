@@ -179,8 +179,15 @@ class AdvancedValidationFramework extends EventEmitter {
                 sanitized = sanitized.substring(0, this.config.sanitization.maxStringLength);
             }
             
-            // Remove control characters
-            sanitized = sanitized.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+            // Remove control characters using string methods instead of regex
+            sanitized = sanitized.split('').filter(char => {
+                const charCode = char.charCodeAt(0);
+                return !(charCode >= 0 && charCode <= 8) &&
+                       charCode !== 11 && 
+                       charCode !== 12 &&
+                       !(charCode >= 14 && charCode <= 31) &&
+                       charCode !== 127;
+            }).join('');
             
             return sanitized;
         });
@@ -207,7 +214,7 @@ class AdvancedValidationFramework extends EventEmitter {
         // SQL injection patterns
         this.securityPatterns.set('sqlInjection', [
             /(\bUNION\b.*\bSELECT\b)|(\bSELECT\b.*\bFROM\b)|(\bINSERT\b.*\bINTO\b)|(\bUPDATE\b.*\bSET\b)|(\bDELETE\b.*\bFROM\b)/i,
-            /('|(\\')|(--)|(#)|(\|)|(\*)|(\;))/,
+            /('|(\\')|(--)|#|\||\*|;)/,
             /(\bOR\b.*=.*)|(\bAND\b.*=.*)/i,
             /\b(DROP|CREATE|ALTER|TRUNCATE)\b/i
         ]);
