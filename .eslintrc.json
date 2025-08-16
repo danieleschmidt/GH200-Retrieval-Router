@@ -17,12 +17,15 @@
     "linebreak-style": ["error", "unix"],
     "quotes": ["off"],
     "semi": ["warn", "always"],
-    "no-unused-vars": ["warn"],
+    "no-unused-vars": ["off"],
     "no-console": ["off"],
     "no-debugger": ["error"],
     "no-trailing-spaces": ["off"],
     "eol-last": ["off"],
     "comma-dangle": ["off"],
-    "max-len": ["off"]
+    "max-len": ["off"],
+    "no-undef": ["error"],
+    "no-redeclare": ["error"],
+    "no-unreachable": ["error"]
   }
 }

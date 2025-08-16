@@ -22,7 +22,7 @@ function initializeSecurityMiddleware(options = {}) {
 }
 
 // Main security validation middleware
-async function securityValidationMiddleware(_req,  _res,  _next) {
+async function securityValidationMiddleware(req, res, next) {
     if (!securityValidator) {
         logger.error('Security validator not initialized');
         return res.status(500).json({
@@ -78,7 +78,7 @@ async function securityValidationMiddleware(_req,  _res,  _next) {
 }
 
 // GDPR compliance middleware
-async function gdprComplianceMiddleware(_req,  _res,  _next) {
+async function gdprComplianceMiddleware(req, res, next) {
     if (!complianceManager) {
         return next(); // Continue without compliance if not enabled
     }
@@ -227,7 +227,7 @@ function intelligentRateLimitMiddleware(options = {}) {
 }
 
 // Data encryption middleware for sensitive responses
-function dataEncryptionMiddleware(_req,  _res,  _next) {
+function dataEncryptionMiddleware(req, res, next) {
     if (!complianceManager) {
         return next();
     }
@@ -264,7 +264,7 @@ function dataEncryptionMiddleware(_req,  _res,  _next) {
 }
 
 // Security headers middleware
-function securityHeadersMiddleware(_req,  _res,  _next) {
+function securityHeadersMiddleware(req, res, next) {
     // Advanced security headers
     res.set({
         'X-Content-Type-Options': 'nosniff',
@@ -284,7 +284,7 @@ function securityHeadersMiddleware(_req,  _res,  _next) {
 }
 
 // Request sanitization middleware
-function requestSanitizationMiddleware(_req,  _res,  _next) {
+function requestSanitizationMiddleware(req, res, next) {
     // Sanitize query parameters
     if (req.query) {
         for (const [key, value] of Object.entries(req.query)) {
@@ -302,7 +302,7 @@ function requestSanitizationMiddleware(_req,  _res,  _next) {
     next();
 }
 
-function sanitizeObject(_obj) {
+function sanitizeObject(obj) {
     if (Array.isArray(obj)) {
         return obj.map(item => sanitizeObject(item));
     }
