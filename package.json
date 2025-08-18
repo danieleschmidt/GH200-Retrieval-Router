@@ -65,7 +65,8 @@
     "prom-client": "^14.2.0",
     "redis": "^4.6.7",
     "uuid": "^9.0.0",
-    "winston": "^3.8.2"
+    "winston": "^3.8.2",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "0x": "^4.1.4",
