@@ -5,7 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const { logger } = require('../utils/logger');
-const { validateSearchQuery } = require('../validators/searchValidator');
+const { validateSearchQuery, validateHybridSearch, validateRAGSearch } = require('../validators/searchValidator');
 
 /**
  * Vector similarity search endpoint
@@ -70,9 +70,9 @@ router.post('/', validateSearchQuery, async (req, res) => {
     let statusCode = 500;
     let errorCode = 'SEARCH_ERROR';
 
-    if (error.name === 'ValidationError') {
+    if (error.name === 'ValidationError' || error.code === 'VALIDATION_ERROR') {
       statusCode = 400;
-      errorCode = 'INVALID_QUERY';
+      errorCode = 'VALIDATION_ERROR';
     } else if (error.name === 'MemoryError') {
       statusCode = 503;
       errorCode = 'MEMORY_EXHAUSTED';
@@ -171,11 +171,19 @@ router.post('/batch', async (req, res) => {
 /**
  * Hybrid search endpoint (dense + sparse)
  */
-router.post('/hybrid', validateSearchQuery, async (req, res) => {
+router.post('/hybrid', validateHybridSearch, async (req, res) => {
   const startTime = Date.now();
   
   try {
     const { query, k = 10, alpha = 0.7, filters = {}, options = {} } = req.body;
+
+    // Additional validation for alpha parameter
+    if (alpha < 0 || alpha > 1) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'Alpha parameter must be between 0 and 1'
+      });
+    }
 
     if (!req.app.locals.retrievalRouter) {
       return res.status(503).json({
@@ -210,8 +218,8 @@ router.post('/hybrid', validateSearchQuery, async (req, res) => {
       processingTime,
       retrievalMethod: 'hybrid',
       hybridWeights: {
-        dense: alpha,
-        sparse: 1 - alpha
+        dense: Math.round(alpha * 10) / 10,
+        sparse: Math.round((1 - alpha) * 10) / 10
       },
       metadata: {
         k,
@@ -231,8 +239,17 @@ router.post('/hybrid', validateSearchQuery, async (req, res) => {
       processingTime
     });
 
-    res.status(500).json({
-      error: 'HYBRID_SEARCH_ERROR',
+    // Determine appropriate error response
+    let statusCode = 500;
+    let errorCode = 'HYBRID_SEARCH_ERROR';
+
+    if (error.name === 'ValidationError' || error.code === 'VALIDATION_ERROR') {
+      statusCode = 400;
+      errorCode = 'VALIDATION_ERROR';
+    }
+
+    res.status(statusCode).json({
+      error: errorCode,
       message: error.message,
       processingTime,
       timestamp: new Date().toISOString()
@@ -243,7 +260,7 @@ router.post('/hybrid', validateSearchQuery, async (req, res) => {
 /**
  * RAG endpoint with generation
  */
-router.post('/rag', validateSearchQuery, async (req, res) => {
+router.post('/rag', validateRAGSearch, async (req, res) => {
   const startTime = Date.now();
   
   try {
@@ -310,8 +327,17 @@ router.post('/rag', validateSearchQuery, async (req, res) => {
       processingTime
     });
 
-    res.status(500).json({
-      error: 'RAG_ERROR',
+    // Determine appropriate error response
+    let statusCode = 500;
+    let errorCode = 'RAG_ERROR';
+
+    if (error.name === 'ValidationError' || error.code === 'VALIDATION_ERROR') {
+      statusCode = 400;
+      errorCode = 'VALIDATION_ERROR';
+    }
+
+    res.status(statusCode).json({
+      error: errorCode,
       message: error.message,
       processingTime,
       timestamp: new Date().toISOString()

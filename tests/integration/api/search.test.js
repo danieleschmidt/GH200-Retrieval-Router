@@ -30,8 +30,9 @@ describe('Search API Integration Tests', () => {
     // Use search routes
     app.use('/search', searchRoutes);
 
-    // Error handling
+    // Error handling middleware
     app.use((error, req, res, next) => {
+      console.error('Test error handler:', error.message);
       res.status(error.statusCode || 500).json({
         error: error.code || 'INTERNAL_ERROR',
         message: error.message

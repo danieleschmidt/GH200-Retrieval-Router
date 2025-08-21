@@ -50,12 +50,21 @@ async function createApp() {
         imgSrc: ["'self'", "data:", "https:"],
       },
     },
+    frameguard: false, // Disable default frameguard
     hsts: {
       maxAge: 31536000,
       includeSubDomains: true,
       preload: true
     }
   }));
+
+  // Explicitly set security headers - move after helmet and before other middleware
+  app.use((req, res, next) => {
+    res.set({
+      'X-Frame-Options': 'DENY'
+    });
+    next();
+  });
 
   // CORS configuration
   app.use(cors({
@@ -82,7 +91,7 @@ async function createApp() {
     }
   });
 
-  app.use('/api', limiter);
+  app.use(limiter);
 
   // Body parsing middleware
   app.use(compression());
@@ -279,16 +288,18 @@ async function createApp() {
     throw error;
   }
 
-  // Mount API routes
-  app.use('/api/v1', apiRoutes);
-
-  // Legacy route support (redirect to v1)
+  // Legacy route support (redirect to v1) - must come before /api/v1 routes
   app.use('/api', (req, res, next) => {
+    // If it starts with /v1, let it continue to the v1 routes
     if (req.path.startsWith('/v1')) {
       return next();
     }
+    // Otherwise redirect to v1
     res.redirect(301, `/api/v1${req.path}`);
   });
+
+  // Mount API routes
+  app.use('/api/v1', apiRoutes);
 
   // Root endpoint
   app.get('/', (req, res) => {
