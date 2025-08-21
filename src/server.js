@@ -222,12 +222,40 @@ async function createApp() {
         return await gen3System.shutdown();
       },
       
+      healthCheck: async () => {
+        const stats = gen3System.getSystemStats();
+        return {
+          healthy: stats.isOperational && stats.isInitialized,
+          generation: 3,
+          componentsHealthy: stats.isOperational,
+          performance: stats.systemMetrics
+        };
+      },
+      
       // Legacy properties for compatibility
       memoryManager: {
-        getStats: () => ({ generation: 3, type: 'unified_grace_memory' })
+        getStats: () => ({ generation: 3, type: 'unified_grace_memory' }),
+        healthCheck: async () => {
+          const stats = gen3System.getSystemStats();
+          return {
+            healthy: stats.isOperational,
+            memoryUsage: stats.systemMetrics?.memoryUtilization || 0,
+            generation: 3
+          };
+        },
+        isReady: () => true
       },
       vectorDatabase: {
-        getStats: () => ({ generation: 3, type: 'cuda_accelerated' })
+        getStats: () => ({ generation: 3, type: 'cuda_accelerated' }),
+        healthCheck: async () => {
+          const stats = gen3System.getSystemStats();
+          return {
+            healthy: stats.isOperational,
+            indexCount: stats.systemMetrics?.activeNodes || 0,
+            generation: 3
+          };
+        },
+        isReady: () => true
       }
     };
 

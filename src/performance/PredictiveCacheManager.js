@@ -214,6 +214,10 @@ class QueryPatternAnalyzer {
     
     _vectorToSignature(vector) {
         // Create a compact signature of the vector for pattern matching
+        if (!Array.isArray(vector) || vector.length === 0) {
+            return `random_${Math.random().toString(36).substring(7)}`;
+        }
+        
         const buckets = 8; // Divide vector into buckets
         const bucketSize = Math.ceil(vector.length / buckets);
         const signature = [];

@@ -349,6 +349,9 @@ class CudaVectorAccelerator extends EventEmitter {
     
     async _transferToGPU(data, gpuId) {
         // Simulate memory transfer - real implementation would use cudaMemcpy
+        if (!Array.isArray(data)) {
+            throw new Error('Input data must be an array for GPU transfer');
+        }
         const transferTime = this._calculateTransferTime(data, 'toGPU', gpuId);
         await this._simulateTransfer(transferTime);
         
