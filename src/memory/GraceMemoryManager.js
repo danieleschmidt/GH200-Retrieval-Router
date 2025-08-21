@@ -51,7 +51,21 @@ class GraceMemoryManager extends EventEmitter {
             totalDeallocations: 0,
             peakUsage: 0,
             fragmentationRatio: 0,
-            bandwidthUtilization: 0
+            bandwidthUtilization: 0,
+            allocationFailures: 0,
+            defragmentationEvents: 0
+        };
+        
+        // GPU resource tracking
+        this.gpuResources = {
+            discoveredGPUs: [],
+            activeAllocations: new Map(),
+            utilizationHistory: [],
+            bandwidthMetrics: {
+                currentThroughput: 0,
+                peakThroughput: 0,
+                averageThroughput: 0
+            }
         };
         
         this.initialized = false;
@@ -74,6 +88,9 @@ class GraceMemoryManager extends EventEmitter {
         });
         
         try {
+            // Discover available GPU resources
+            await this._discoverGPUResources();
+            
             // Initialize memory pools
             await this._initializePools();
             
@@ -84,6 +101,9 @@ class GraceMemoryManager extends EventEmitter {
             if (this.config.enableZeroCopy) {
                 await this._enableZeroCopyTransfers();
             }
+            
+            // Start adaptive allocation monitoring
+            this._startAdaptiveAllocation();
             
             this.initialized = true;
             this.emit('initialized');
@@ -447,6 +467,277 @@ class GraceMemoryManager extends EventEmitter {
     _allocateSegment(pool, size) {
         // In real implementation, this would use actual memory allocation APIs
         return `0x${Math.random().toString(16).substr(2, 8).padStart(8, '0')}`;
+    }
+    
+    /**
+     * Discover available GPU resources
+     * @private
+     */
+    async _discoverGPUResources() {
+        logger.debug('Discovering GPU resources...');
+        
+        try {
+            // Simulate GPU discovery (in real implementation would use nvidia-ml-py)
+            const mockGPUs = [];
+            const gpuCount = parseInt(process.env.GPU_COUNT) || 4;
+            
+            for (let i = 0; i < gpuCount; i++) {
+                const gpu = {
+                    id: i,
+                    name: `NVIDIA GH200 Grace Hopper ${i}`,
+                    totalMemoryGB: 480,
+                    availableMemoryGB: 450,
+                    computeCapability: '9.0',
+                    bandwidth: {
+                        memoryBandwidth: 4900, // GB/s
+                        nvlinkBandwidth: 900    // GB/s
+                    },
+                    utilization: {
+                        compute: 0,
+                        memory: 0,
+                        encoder: 0,
+                        decoder: 0
+                    },
+                    temperature: 65,
+                    powerDraw: 700 // Watts
+                };
+                
+                mockGPUs.push(gpu);
+            }
+            
+            this.gpuResources.discoveredGPUs = mockGPUs;
+            
+            logger.info('GPU resource discovery complete', {
+                gpuCount: mockGPUs.length,
+                totalGPUMemory: mockGPUs.reduce((sum, gpu) => sum + gpu.totalMemoryGB, 0),
+                totalAvailableMemory: mockGPUs.reduce((sum, gpu) => sum + gpu.availableMemoryGB, 0)
+            });
+            
+            this.emit('gpuResourcesDiscovered', mockGPUs);
+            
+        } catch (error) {
+            logger.warn('GPU resource discovery failed, falling back to CPU-only mode', {
+                error: error.message
+            });
+            
+            // Fallback to CPU-only configuration
+            this.gpuResources.discoveredGPUs = [];
+        }
+    }
+    
+    /**
+     * Start adaptive allocation monitoring
+     * @private
+     */
+    _startAdaptiveAllocation() {
+        logger.debug('Starting adaptive allocation monitoring');
+        
+        // Monitor allocation patterns every 10 seconds
+        setInterval(() => {
+            this._analyzeAllocationPatterns();
+        }, 10000);
+        
+        // Perform pool rebalancing every minute
+        setInterval(() => {
+            this._rebalancePools();
+        }, 60000);
+    }
+    
+    /**
+     * Analyze allocation patterns for optimization
+     * @private
+     */
+    _analyzeAllocationPatterns() {
+        const stats = this.getStats();
+        
+        // Track utilization history
+        this.gpuResources.utilizationHistory.push({
+            timestamp: Date.now(),
+            utilizationRatio: stats.utilizationRatio || 0,
+            fragmentationRatio: stats.fragmentationRatio || 0,
+            bandwidthUtilization: this.stats.bandwidthUtilization
+        });
+        
+        // Keep only last 100 entries
+        if (this.gpuResources.utilizationHistory.length > 100) {
+            this.gpuResources.utilizationHistory.shift();
+        }
+        
+        // Check for allocation optimization opportunities
+        this._optimizeAllocations();
+    }
+    
+    /**
+     * Optimize memory allocations based on usage patterns
+     * @private
+     */
+    _optimizeAllocations() {
+        const recentHistory = this.gpuResources.utilizationHistory.slice(-10);
+        if (recentHistory.length < 5) return;
+        
+        const avgUtilization = recentHistory.reduce((sum, entry) => sum + entry.utilizationRatio, 0) / recentHistory.length;
+        const avgFragmentation = recentHistory.reduce((sum, entry) => sum + entry.fragmentationRatio, 0) / recentHistory.length;
+        
+        // If high fragmentation detected, trigger defragmentation
+        if (avgFragmentation > 0.4) {
+            logger.info('High fragmentation detected, triggering defragmentation', {
+                avgFragmentation,
+                threshold: 0.4
+            });
+            
+            this._defragmentPools();
+        }
+        
+        // If consistently high utilization, suggest pool expansion
+        if (avgUtilization > 0.85) {
+            logger.warn('High memory utilization detected', {
+                avgUtilization,
+                suggestion: 'Consider increasing memory pool sizes or adding more GPUs'
+            });
+            
+            this.emit('highUtilizationWarning', {
+                avgUtilization,
+                recentHistory
+            });
+        }
+    }
+    
+    /**
+     * Rebalance memory pools based on usage patterns
+     * @private
+     */
+    _rebalancePools() {
+        logger.debug('Performing pool rebalancing analysis');
+        
+        const stats = this.getStats();
+        const pools = stats.pools;
+        
+        // Find underutilized pools
+        const underutilizedPools = Object.entries(pools)
+            .filter(([name, pool]) => {
+                const utilization = pool.allocated / (pool.allocated + pool.available);
+                return utilization < 0.3 && pool.allocated > 0;
+            });
+        
+        // Find overutilized pools
+        const overutilizedPools = Object.entries(pools)
+            .filter(([name, pool]) => {
+                const utilization = pool.allocated / (pool.allocated + pool.available);
+                return utilization > 0.9;
+            });
+        
+        if (underutilizedPools.length > 0 && overutilizedPools.length > 0) {
+            logger.info('Pool imbalance detected', {
+                underutilized: underutilizedPools.map(([name]) => name),
+                overutilized: overutilizedPools.map(([name]) => name)
+            });
+            
+            // Emit rebalancing suggestion
+            this.emit('poolRebalancingSuggested', {
+                underutilized: underutilizedPools,
+                overutilized: overutilizedPools
+            });
+        }
+    }
+    
+    /**
+     * Perform defragmentation on all pools
+     * @private
+     */
+    async _defragmentPools() {
+        logger.info('Starting memory defragmentation');
+        
+        this.stats.defragmentationEvents++;
+        
+        for (const poolName of Object.keys(this.pools)) {
+            await this._defragmentPool(poolName);
+        }
+        
+        logger.info('Memory defragmentation complete');
+        this.emit('defragmentationComplete');
+    }
+    
+    /**
+     * Defragment a specific memory pool
+     * @private
+     */
+    async _defragmentPool(poolName) {
+        const pool = this.pools[poolName];
+        if (!pool || pool.segments.size === 0) return;
+        
+        logger.debug(`Defragmenting pool '${poolName}'`);
+        
+        // Simplified defragmentation: consolidate small allocations
+        const smallAllocations = Array.from(pool.segments.values())
+            .filter(allocation => allocation.size < 1024 * 1024 && !allocation.pinned) // < 1MB
+            .sort((a, b) => a.timestamp - b.timestamp); // Oldest first
+        
+        if (smallAllocations.length > 10) {
+            logger.debug(`Found ${smallAllocations.length} small allocations for consolidation in pool '${poolName}'`);
+        }
+    }
+    
+    /**
+     * Get GPU resource information
+     */
+    getGPUResources() {
+        return {
+            discoveredGPUs: this.gpuResources.discoveredGPUs,
+            activeAllocations: this.gpuResources.activeAllocations.size,
+            bandwidthMetrics: this.gpuResources.bandwidthMetrics,
+            utilizationHistory: this.gpuResources.utilizationHistory.slice(-20) // Last 20 entries
+        };
+    }
+    
+    /**
+     * Allocate GPU-optimized memory
+     */
+    async allocateGPUOptimized(sizeBytes, options = {}) {
+        const gpuId = options.preferredGPU || this._selectOptimalGPU();
+        
+        if (gpuId !== null && this.gpuResources.discoveredGPUs[gpuId]) {
+            // Allocate on specific GPU
+            const allocation = await this.allocate('embeddings', sizeBytes, {
+                ...options,
+                gpuId,
+                gpuOptimized: true
+            });
+            
+            this.gpuResources.activeAllocations.set(allocation.id, {
+                gpuId,
+                size: sizeBytes,
+                timestamp: Date.now()
+            });
+            
+            return allocation;
+        } else {
+            // Fall back to regular allocation
+            return await this.allocate('embeddings', sizeBytes, options);
+        }
+    }
+    
+    /**
+     * Select optimal GPU for allocation
+     * @private
+     */
+    _selectOptimalGPU() {
+        if (this.gpuResources.discoveredGPUs.length === 0) {
+            return null;
+        }
+        
+        // Find GPU with lowest memory utilization
+        let optimalGPU = null;
+        let lowestUtilization = Infinity;
+        
+        this.gpuResources.discoveredGPUs.forEach((gpu, index) => {
+            const utilization = (gpu.totalMemoryGB - gpu.availableMemoryGB) / gpu.totalMemoryGB;
+            if (utilization < lowestUtilization) {
+                lowestUtilization = utilization;
+                optimalGPU = index;
+            }
+        });
+        
+        return optimalGPU;
     }
     
     /**

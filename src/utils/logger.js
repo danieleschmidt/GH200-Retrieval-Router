@@ -5,6 +5,8 @@
 
 const winston = require('winston');
 const { format } = winston;
+const crypto = require('crypto');
+const os = require('os');
 
 // Log levels with performance implications
 const LOG_LEVELS = {
@@ -21,13 +23,99 @@ const isProduction = process.env.NODE_ENV === 'production';
 const isDevelopment = process.env.NODE_ENV === 'development';
 const logLevel = process.env.LOG_LEVEL || (isDevelopment ? 'debug' : 'info');
 
-// Custom format for Grace Hopper context
+// System information for correlation
+const SYSTEM_INFO = {
+    hostname: os.hostname(),
+    platform: os.platform(),
+    arch: os.arch(),
+    nodeVersion: process.version,
+    pid: process.pid,
+    instance: process.env.INSTANCE_ID || crypto.randomBytes(4).toString('hex')
+};
+
+// Advanced correlation and distributed tracing support
+class CorrelationContext {
+    constructor() {
+        this.contexts = new Map();
+    }
+    
+    createContext(traceId = null, spanId = null) {
+        const context = {
+            traceId: traceId || crypto.randomUUID(),
+            spanId: spanId || crypto.randomBytes(8).toString('hex'),
+            parentSpanId: null,
+            startTime: Date.now(),
+            ...SYSTEM_INFO
+        };
+        
+        return context;
+    }
+    
+    getContext() {
+        // In a real implementation, this would use async_hooks or similar
+        // to maintain context across async operations
+        return this.contexts.get('current') || this.createContext();
+    }
+    
+    setContext(context) {
+        this.contexts.set('current', context);
+    }
+    
+    createChildContext(operation) {
+        const parent = this.getContext();
+        const child = {
+            ...parent,
+            spanId: crypto.randomBytes(8).toString('hex'),
+            parentSpanId: parent.spanId,
+            operation,
+            startTime: Date.now()
+        };
+        
+        return child;
+    }
+}
+
+const correlationContext = new CorrelationContext();
+
+// Enhanced format with correlation and system context
 const graceHopperFormat = format.combine(
     format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
     format.errors({ stack: true }),
     format.printf(({ level, message, timestamp, ...metadata }) => {
-        const meta = Object.keys(metadata).length ? JSON.stringify(metadata) : '';
+        const context = correlationContext.getContext();
+        const enhancedMetadata = {
+            ...metadata,
+            traceId: context.traceId,
+            spanId: context.spanId,
+            parentSpanId: context.parentSpanId,
+            hostname: SYSTEM_INFO.hostname,
+            instance: SYSTEM_INFO.instance,
+            pid: SYSTEM_INFO.pid
+        };
+        
+        const meta = Object.keys(enhancedMetadata).length ? JSON.stringify(enhancedMetadata) : '';
         return `${timestamp} [${level.toUpperCase()}] ${message} ${meta}`;
+    })
+);
+
+// OpenTelemetry-compatible format for observability
+const observabilityFormat = format.combine(
+    format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
+    format.errors({ stack: true }),
+    format.json(),
+    format.printf((info) => {
+        const context = correlationContext.getContext();
+        return JSON.stringify({
+            ...info,
+            trace: {
+                traceId: context.traceId,
+                spanId: context.spanId,
+                parentSpanId: context.parentSpanId
+            },
+            system: SYSTEM_INFO,
+            '@timestamp': info.timestamp,
+            '@version': '1'
+        });
     })
 );
 
@@ -57,6 +145,7 @@ if (isProduction) {
         fs.mkdirSync(logsDir, { recursive: true });
     }
 
+    // Error logs
     transports.push(
         new winston.transports.File({
             filename: 'logs/gh200-router-error.log',
@@ -65,13 +154,67 @@ if (isProduction) {
             maxsize: 100 * 1024 * 1024, // 100MB
             maxFiles: 10,
             tailable: true
-        }),
+        })
+    );
+    
+    // Combined logs
+    transports.push(
         new winston.transports.File({
             filename: 'logs/gh200-router-combined.log',
             format: graceHopperFormat,
             maxsize: 500 * 1024 * 1024, // 500MB
             maxFiles: 20,
             tailable: true
+        })
+    );
+    
+    // Observability logs (structured JSON for log aggregators)
+    transports.push(
+        new winston.transports.File({
+            filename: 'logs/gh200-router-observability.log',
+            format: observabilityFormat,
+            maxsize: 500 * 1024 * 1024, // 500MB
+            maxFiles: 15,
+            tailable: true
+        })
+    );
+    
+    // Performance metrics logs
+    transports.push(
+        new winston.transports.File({
+            filename: 'logs/gh200-router-metrics.log',
+            level: 'info',
+            format: observabilityFormat,
+            maxsize: 200 * 1024 * 1024, // 200MB
+            maxFiles: 10,
+            tailable: true,
+            // Only log performance-related entries
+            filter: (info) => {
+                return info.category === 'performance' || 
+                       info.type === 'metrics' ||
+                       info.message.includes('Performance') ||
+                       info.message.includes('metrics');
+            }
+        })
+    );
+    
+    // Security audit logs
+    transports.push(
+        new winston.transports.File({
+            filename: 'logs/gh200-router-security.log',
+            level: 'warn',
+            format: observabilityFormat,
+            maxsize: 100 * 1024 * 1024, // 100MB
+            maxFiles: 20,
+            tailable: true,
+            // Only log security-related entries
+            filter: (info) => {
+                return info.category === 'security' || 
+                       info.type === 'security' ||
+                       info.message.includes('Security') ||
+                       info.message.includes('threat') ||
+                       info.message.includes('Alert');
+            }
         })
     );
 }
@@ -96,11 +239,19 @@ const logger = winston.createLogger({
     silent: process.env.NODE_ENV === 'test'
 });
 
-// Performance-aware logging helpers
+// Performance-aware logging helpers with distributed tracing
 class PerformanceLogger {
     constructor(baseLogger) {
         this.logger = baseLogger;
         this.timers = new Map();
+        this.spans = new Map();
+        this.metricsBuffer = [];
+        this.correlationContext = correlationContext;
+        
+        // Periodically flush metrics
+        this.metricsFlushInterval = setInterval(() => {
+            this.flushMetrics();
+        }, 30000); // Flush every 30 seconds
     }
     
     /**
@@ -191,7 +342,11 @@ class PerformanceLogger {
      * @param {Object} queryMetrics - Query performance data
      */
     logQueryMetrics(queryMetrics) {
+        const context = this.correlationContext.getContext();
+        
         this.logger.info('Query performance', {
+            category: 'performance',
+            type: 'metrics',
             queryId: queryMetrics.queryId,
             latencyMs: queryMetrics.latencyMs,
             throughputQPS: queryMetrics.throughputQPS,
@@ -199,8 +354,249 @@ class PerformanceLogger {
             shardsQueried: queryMetrics.shardsQueried,
             cacheHit: queryMetrics.cacheHit,
             retrievalLatencyMs: queryMetrics.retrievalLatencyMs,
-            generationLatencyMs: queryMetrics.generationLatencyMs
+            generationLatencyMs: queryMetrics.generationLatencyMs,
+            traceId: context.traceId,
+            spanId: context.spanId
         });
+        
+        // Buffer for aggregated metrics
+        this.metricsBuffer.push({
+            timestamp: Date.now(),
+            type: 'query_performance',
+            metrics: queryMetrics
+        });
+    }
+    
+    /**
+     * Start a distributed trace span
+     */
+    startSpan(operation, metadata = {}) {
+        const context = this.correlationContext.createChildContext(operation);
+        const spanId = context.spanId;
+        
+        const span = {
+            spanId,
+            operation,
+            startTime: Date.now(),
+            context,
+            metadata,
+            events: []
+        };
+        
+        this.spans.set(spanId, span);
+        this.correlationContext.setContext(context);
+        
+        this.logger.debug('Span started', {
+            operation,
+            spanId,
+            traceId: context.traceId,
+            parentSpanId: context.parentSpanId,
+            ...metadata
+        });
+        
+        return spanId;
+    }
+    
+    /**
+     * Finish a distributed trace span
+     */
+    finishSpan(spanId, result = {}, error = null) {
+        const span = this.spans.get(spanId);
+        if (!span) {
+            this.logger.warn('Span not found', { spanId });
+            return;
+        }
+        
+        const endTime = Date.now();
+        const duration = endTime - span.startTime;
+        
+        span.endTime = endTime;
+        span.duration = duration;
+        span.result = result;
+        span.error = error;
+        
+        this.logger.info('Span completed', {
+            operation: span.operation,
+            spanId: span.spanId,
+            traceId: span.context.traceId,
+            duration,
+            success: !error,
+            error: error ? error.message : undefined,
+            ...span.metadata,
+            ...result
+        });
+        
+        this.spans.delete(spanId);
+    }
+    
+    /**
+     * Add event to current span
+     */
+    addSpanEvent(spanId, event, data = {}) {
+        const span = this.spans.get(spanId);
+        if (!span) return;
+        
+        span.events.push({
+            timestamp: Date.now(),
+            event,
+            data
+        });
+        
+        this.logger.debug('Span event', {
+            spanId,
+            event,
+            operation: span.operation,
+            ...data
+        });
+    }
+    
+    /**
+     * Log structured error with correlation
+     */
+    logError(error, context = {}) {
+        const correlationCtx = this.correlationContext.getContext();
+        
+        this.logger.error(error.message || 'Unknown error', {
+            error: {
+                name: error.name,
+                message: error.message,
+                code: error.code,
+                stack: error.stack
+            },
+            traceId: correlationCtx.traceId,
+            spanId: correlationCtx.spanId,
+            ...context
+        });
+    }
+    
+    /**
+     * Log business metrics
+     */
+    logBusinessMetric(name, value, dimensions = {}) {
+        const context = this.correlationContext.getContext();
+        
+        this.logger.info('Business metric', {
+            category: 'business',
+            type: 'metric',
+            metric: {
+                name,
+                value,
+                dimensions,
+                timestamp: Date.now()
+            },
+            traceId: context.traceId,
+            spanId: context.spanId
+        });
+        
+        this.metricsBuffer.push({
+            timestamp: Date.now(),
+            type: 'business_metric',
+            name,
+            value,
+            dimensions
+        });
+    }
+    
+    /**
+     * Log security event with correlation
+     */
+    logSecurityEvent(event, details = {}) {
+        const context = this.correlationContext.getContext();
+        
+        this.logger.warn('Security event', {
+            category: 'security',
+            type: 'security_event',
+            event,
+            details,
+            traceId: context.traceId,
+            spanId: context.spanId,
+            timestamp: new Date().toISOString()
+        });
+    }
+    
+    /**
+     * Flush accumulated metrics
+     */
+    flushMetrics() {
+        if (this.metricsBuffer.length === 0) return;
+        
+        const metrics = [...this.metricsBuffer];
+        this.metricsBuffer = [];
+        
+        // Aggregate metrics by type
+        const aggregated = {};
+        metrics.forEach(metric => {
+            if (!aggregated[metric.type]) {
+                aggregated[metric.type] = [];
+            }
+            aggregated[metric.type].push(metric);
+        });
+        
+        // Log aggregated metrics
+        for (const [type, metricList] of Object.entries(aggregated)) {
+            this.logger.info('Metrics flush', {
+                category: 'metrics',
+                type: 'aggregated_metrics',
+                metricType: type,
+                count: metricList.length,
+                timeWindow: '30s',
+                metrics: metricList.slice(0, 100) // Limit to prevent huge logs
+            });
+        }
+    }
+    
+    /**
+     * Get trace context for external systems
+     */
+    getTraceContext() {
+        const context = this.correlationContext.getContext();
+        return {
+            traceId: context.traceId,
+            spanId: context.spanId,
+            traceParent: `00-${context.traceId}-${context.spanId}-01`
+        };
+    }
+    
+    /**
+     * Set trace context from external system
+     */
+    setTraceContext(traceId, spanId) {
+        const context = this.correlationContext.createContext(traceId, spanId);
+        this.correlationContext.setContext(context);
+        
+        this.logger.debug('Trace context set', {
+            traceId,
+            spanId,
+            source: 'external'
+        });
+    }
+    
+    /**
+     * Create operation wrapper with automatic tracing
+     */
+    traced(operation, fn) {
+        return async (...args) => {
+            const spanId = this.startSpan(operation);
+            
+            try {
+                const result = await fn(...args);
+                this.finishSpan(spanId, { result });
+                return result;
+            } catch (error) {
+                this.finishSpan(spanId, {}, error);
+                throw error;
+            }
+        };
+    }
+    
+    /**
+     * Cleanup resources
+     */
+    cleanup() {
+        if (this.metricsFlushInterval) {
+            clearInterval(this.metricsFlushInterval);
+        }
+        this.flushMetrics();
     }
 }
 
@@ -233,5 +629,8 @@ module.exports = {
     logger,
     perfLogger,
     PerformanceLogger,
-    LOG_LEVELS
+    CorrelationContext,
+    correlationContext,
+    LOG_LEVELS,
+    SYSTEM_INFO
 };

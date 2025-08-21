@@ -32,6 +32,25 @@ class QueryOptimizer {
         
         // Query statistics
         this.queryStats = new Map();
+        
+        // Error recovery and resilience
+        this.errorStats = {
+            embeddingGenerationFailures: 0,
+            cacheFailures: 0,
+            rewritingFailures: 0,
+            fallbackUsed: 0
+        };
+        
+        // Adaptive caching metrics
+        this.adaptiveMetrics = {
+            cacheAccessPattern: new Map(),
+            lastOptimizationReview: Date.now(),
+            optimizationInterval: 300000 // 5 minutes
+        };
+        
+        // Fallback embeddings cache
+        this.fallbackEmbeddings = new Map();
+        
         this.initialized = false;
     }
     
@@ -49,8 +68,15 @@ class QueryOptimizer {
                 await this._initializeSemanticSimilarity();
             }
             
+            // Start adaptive optimization monitoring
+            this._startAdaptiveOptimization();
+            
             this.initialized = true;
-            logger.info('QueryOptimizer initialized successfully');
+            logger.info('QueryOptimizer initialized successfully', {
+                cacheSize: this.options.cacheSize,
+                semanticCaching: this.options.enableSemanticCaching,
+                queryRewriting: this.options.enableQueryRewriting
+            });
             
         } catch (error) {
             logger.error('QueryOptimizer initialization failed', { error: error.message });
@@ -59,7 +85,7 @@ class QueryOptimizer {
     }
     
     /**
-     * Optimize query for retrieval
+     * Optimize query for retrieval with enhanced error recovery
      * @param {string} query - Original query text
      * @param {Object} options - Query options
      * @returns {Object} Optimized query with embedding and metadata
@@ -71,68 +97,135 @@ class QueryOptimizer {
         
         const startTime = Date.now();
         const { k, database, cacheKey } = options;
+        let fallbackUsed = false;
+        let optimizationErrors = [];
         
         try {
-            // Check exact cache first
-            const cachedResult = this._checkExactCache(query, options);
-            if (cachedResult) {
-                logger.debug('Query cache hit', { query: query.substring(0, 50) });
-                return { ...cachedResult, fromCache: true };
+            // Track cache access patterns for adaptive optimization
+            this._trackCacheAccess(query, options);
+            
+            // Check exact cache first with error handling
+            let cachedResult;
+            try {
+                cachedResult = await this._checkExactCacheWithRecovery(query, options);
+                if (cachedResult) {
+                    logger.debug('Query cache hit', { query: query.substring(0, 50) });
+                    this._recordCacheHit('exact');
+                    return { ...cachedResult, fromCache: true, processingTime: Date.now() - startTime };
+                }
+            } catch (error) {
+                this.errorStats.cacheFailures++;
+                optimizationErrors.push(`Cache check failed: ${error.message}`);
+                logger.warn('Cache check failed, continuing with optimization', { error: error.message });
             }
             
-            // Check semantic cache
+            // Check semantic cache with recovery
             if (this.options.enableSemanticCaching) {
-                const semanticResult = await this._checkSemanticCache(query, options);
-                if (semanticResult) {
-                    logger.debug('Semantic cache hit', { query: query.substring(0, 50) });
-                    return { ...semanticResult, fromCache: true, semanticCache: true };
+                try {
+                    const semanticResult = await this._checkSemanticCacheWithRecovery(query, options);
+                    if (semanticResult) {
+                        logger.debug('Semantic cache hit', { query: query.substring(0, 50) });
+                        this._recordCacheHit('semantic');
+                        return { ...semanticResult, fromCache: true, semanticCache: true, processingTime: Date.now() - startTime };
+                    }
+                } catch (error) {
+                    this.errorStats.cacheFailures++;
+                    optimizationErrors.push(`Semantic cache failed: ${error.message}`);
+                    logger.warn('Semantic cache failed, continuing with optimization', { error: error.message });
                 }
             }
             
-            // Optimize query text
-            const optimizedText = await this._optimizeQueryText(query);
+            // Optimize query text with fallback
+            let optimizedText = query;
+            try {
+                optimizedText = await this._optimizeQueryTextWithRecovery(query);
+            } catch (error) {
+                this.errorStats.rewritingFailures++;
+                optimizationErrors.push(`Query rewriting failed: ${error.message}`);
+                logger.warn('Query rewriting failed, using original text', { error: error.message });
+                fallbackUsed = true;
+            }
             
-            // Generate embedding
-            const embedding = await this._generateEmbedding(optimizedText);
+            // Generate embedding with multiple fallback strategies
+            let embedding;
+            try {
+                embedding = await this._generateEmbeddingWithRecovery(optimizedText);
+            } catch (error) {
+                this.errorStats.embeddingGenerationFailures++;
+                optimizationErrors.push(`Embedding generation failed: ${error.message}`);
+                
+                // Try fallback embedding
+                embedding = await this._getFallbackEmbedding(query);
+                if (!embedding) {
+                    throw new Error('All embedding generation strategies failed');
+                }
+                fallbackUsed = true;
+            }
             
-            // Create optimized query object
+            // Create optimized query object with enhanced metadata
             const optimizedQuery = {
                 original: query,
                 text: optimizedText,
                 embedding,
                 k,
                 database,
+                processingTime: Date.now() - startTime,
                 optimizationMetadata: {
                     rewritten: optimizedText !== query,
                     embeddingGeneration: Date.now() - startTime,
-                    cacheKey
+                    cacheKey,
+                    fallbackUsed,
+                    errors: optimizationErrors,
+                    strategy: fallbackUsed ? 'fallback' : 'full',
+                    embeddingDimensions: embedding.length
                 }
             };
             
-            // Cache the result
-            this._cacheQuery(query, options, optimizedQuery);
+            // Cache the result with error handling
+            try {
+                await this._cacheQueryWithRecovery(query, options, optimizedQuery);
+            } catch (error) {
+                this.errorStats.cacheFailures++;
+                logger.warn('Failed to cache optimized query', { error: error.message });
+            }
             
             // Update statistics
-            this._updateQueryStats(query, Date.now() - startTime, false);
+            this._updateQueryStats(query, Date.now() - startTime, false, fallbackUsed);
+            
+            if (fallbackUsed) {
+                this.errorStats.fallbackUsed++;
+                logger.info('Query optimization completed with fallback', {
+                    query: query.substring(0, 50),
+                    fallbackUsed,
+                    errors: optimizationErrors
+                });
+            }
             
             return optimizedQuery;
             
         } catch (error) {
-            logger.error('Query optimization failed', { 
+            this.errorStats.fallbackUsed++;
+            logger.error('Query optimization failed completely, using emergency fallback', { 
                 query: query.substring(0, 50),
-                error: error.message 
+                error: error.message,
+                stack: error.stack
             });
             
-            // Return fallback optimization
+            // Emergency fallback - return minimal viable optimization
+            const fallbackEmbedding = await this._getEmergencyFallbackEmbedding(query);
+            
             return {
                 original: query,
                 text: query,
-                embedding: await this._generateEmbedding(query),
+                embedding: fallbackEmbedding,
                 k,
                 database,
+                processingTime: Date.now() - startTime,
                 optimizationMetadata: {
                     fallback: true,
-                    error: error.message
+                    emergencyFallback: true,
+                    error: error.message,
+                    strategy: 'emergency'
                 }
             };
         }
@@ -440,6 +533,371 @@ class QueryOptimizer {
     }
 
     /**
+     * Start adaptive optimization monitoring
+     * @private
+     */
+    _startAdaptiveOptimization() {
+        // Review and optimize cache patterns periodically
+        setInterval(() => {
+            this._reviewCacheOptimization();
+        }, this.adaptiveMetrics.optimizationInterval);
+        
+        logger.debug('Adaptive optimization monitoring started');
+    }
+    
+    /**
+     * Track cache access patterns
+     * @private
+     */
+    _trackCacheAccess(query, options) {
+        const pattern = {
+            queryLength: query.length,
+            database: options.database || 'default',
+            k: options.k || 10,
+            timestamp: Date.now()
+        };
+        
+        const patternKey = `${pattern.database}_${pattern.k}`;
+        const currentCount = this.adaptiveMetrics.cacheAccessPattern.get(patternKey) || 0;
+        this.adaptiveMetrics.cacheAccessPattern.set(patternKey, currentCount + 1);
+    }
+    
+    /**
+     * Record cache hit statistics
+     * @private
+     */
+    _recordCacheHit(cacheType) {
+        // This could be expanded to track different cache hit patterns
+        logger.debug(`Cache hit recorded: ${cacheType}`);
+    }
+    
+    /**
+     * Check exact cache with recovery mechanisms
+     * @private
+     */
+    async _checkExactCacheWithRecovery(query, options) {
+        try {
+            const cacheKey = this._generateCacheKey(query, options);
+            const result = this.queryCache.get(cacheKey);
+            
+            // Validate cached result
+            if (result && this._validateCachedResult(result)) {
+                return result;
+            } else if (result) {
+                // Invalid result found, remove from cache
+                this.queryCache.delete(cacheKey);
+                logger.warn('Invalid cached result removed', { cacheKey: cacheKey.substring(0, 8) });
+            }
+            
+            return null;
+        } catch (error) {
+            logger.error('Exact cache check failed', { error: error.message });
+            throw error;
+        }
+    }
+    
+    /**
+     * Check semantic cache with recovery mechanisms
+     * @private
+     */
+    async _checkSemanticCacheWithRecovery(query, options) {
+        try {
+            // Generate embedding for similarity check with timeout
+            const embeddingPromise = this._generateEmbedding(query);
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Embedding generation timeout')), 5000);
+            });
+            
+            const queryEmbedding = await Promise.race([embeddingPromise, timeoutPromise]);
+            
+            // Check against cached queries with similarity threshold
+            for (const [cacheKey, cachedQuery] of this.semanticCache.entries()) {
+                if (cachedQuery.database !== options.database) continue;
+                
+                try {
+                    const similarity = this._cosineSimilarity(queryEmbedding, cachedQuery.embedding);
+                    
+                    // Use cached result if similarity is high
+                    if (similarity > 0.95 && this._validateCachedResult(cachedQuery)) {
+                        return cachedQuery;
+                    }
+                } catch (error) {
+                    logger.warn('Similarity calculation failed for cached query', {
+                        cacheKey: cacheKey.substring(0, 8),
+                        error: error.message
+                    });
+                    continue;
+                }
+            }
+            
+            return null;
+        } catch (error) {
+            logger.error('Semantic cache check failed', { error: error.message });
+            throw error;
+        }
+    }
+    
+    /**
+     * Optimize query text with recovery mechanisms
+     * @private
+     */
+    async _optimizeQueryTextWithRecovery(query) {
+        if (!this.options.enableQueryRewriting) {
+            return query;
+        }
+        
+        try {
+            let optimizedQuery = query.trim();
+            
+            // Apply each optimization step with individual error handling
+            try {
+                optimizedQuery = this._applyRewritingRules(optimizedQuery);
+            } catch (error) {
+                logger.warn('Query rewriting rules failed', { error: error.message });
+                // Continue with original query
+            }
+            
+            try {
+                optimizedQuery = this._expandAbbreviations(optimizedQuery);
+            } catch (error) {
+                logger.warn('Abbreviation expansion failed', { error: error.message });
+                // Continue with current state
+            }
+            
+            try {
+                optimizedQuery = this._normalizePunctuation(optimizedQuery);
+            } catch (error) {
+                logger.warn('Punctuation normalization failed', { error: error.message });
+                // Continue with current state
+            }
+            
+            return optimizedQuery;
+            
+        } catch (error) {
+            logger.error('Query text optimization failed completely', { error: error.message });
+            return query; // Return original query as fallback
+        }
+    }
+    
+    /**
+     * Generate embedding with recovery mechanisms
+     * @private
+     */
+    async _generateEmbeddingWithRecovery(text) {
+        try {
+            // Try primary embedding generation with timeout
+            const embeddingPromise = this._generateEmbedding(text);
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Embedding generation timeout')), 10000);
+            });
+            
+            return await Promise.race([embeddingPromise, timeoutPromise]);
+            
+        } catch (error) {
+            logger.warn('Primary embedding generation failed', { error: error.message });
+            throw error; // Let caller handle fallback
+        }
+    }
+    
+    /**
+     * Get fallback embedding from cache or generate simple one
+     * @private
+     */
+    async _getFallbackEmbedding(query) {
+        const fallbackKey = query.trim().toLowerCase();
+        
+        // Check if we have a cached fallback
+        if (this.fallbackEmbeddings.has(fallbackKey)) {
+            logger.debug('Using cached fallback embedding');
+            return this.fallbackEmbeddings.get(fallbackKey);
+        }
+        
+        // Generate simple fallback embedding
+        try {
+            const simpleEmbedding = this._generateSimpleEmbedding(query);
+            this.fallbackEmbeddings.set(fallbackKey, simpleEmbedding);
+            
+            // Limit fallback cache size
+            if (this.fallbackEmbeddings.size > 1000) {
+                const firstKey = this.fallbackEmbeddings.keys().next().value;
+                this.fallbackEmbeddings.delete(firstKey);
+            }
+            
+            return simpleEmbedding;
+        } catch (error) {
+            logger.error('Fallback embedding generation failed', { error: error.message });
+            return null;
+        }
+    }
+    
+    /**
+     * Get emergency fallback embedding (last resort)
+     * @private
+     */
+    async _getEmergencyFallbackEmbedding(query) {
+        // Generate zero vector as absolute fallback
+        const dimensions = 384;
+        const embedding = new Array(dimensions).fill(0);
+        
+        // Add some variation based on query length
+        embedding[0] = query.length / 1000;
+        embedding[1] = query.split(' ').length / 100;
+        
+        logger.warn('Using emergency zero embedding as fallback');
+        return embedding;
+    }
+    
+    /**
+     * Generate simple embedding based on character frequencies
+     * @private
+     */
+    _generateSimpleEmbedding(text) {
+        const dimensions = 384;
+        const embedding = new Array(dimensions).fill(0);
+        
+        // Simple character frequency-based embedding
+        const chars = text.toLowerCase().split('');
+        for (let i = 0; i < chars.length && i < dimensions; i++) {
+            const charCode = chars[i].charCodeAt(0);
+            embedding[i % dimensions] += charCode / 1000;
+        }
+        
+        // Normalize
+        const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+        if (norm > 0) {
+            for (let i = 0; i < dimensions; i++) {
+                embedding[i] /= norm;
+            }
+        }
+        
+        return embedding;
+    }
+    
+    /**
+     * Cache query with recovery mechanisms
+     * @private
+     */
+    async _cacheQueryWithRecovery(query, options, optimizedQuery) {
+        try {
+            const cacheKey = this._generateCacheKey(query, options);
+            
+            // Cache in exact cache
+            this.queryCache.set(cacheKey, optimizedQuery);
+            
+            // Cache in semantic cache
+            if (this.options.enableSemanticCaching) {
+                const semanticKey = `semantic_${cacheKey}`;
+                this.semanticCache.set(semanticKey, optimizedQuery);
+            }
+            
+        } catch (error) {
+            logger.error('Query caching failed', { error: error.message });
+            // Don't throw - caching is not critical
+        }
+    }
+    
+    /**
+     * Validate cached result integrity
+     * @private
+     */
+    _validateCachedResult(result) {
+        if (!result || typeof result !== 'object') return false;
+        if (!result.embedding || !Array.isArray(result.embedding)) return false;
+        if (!result.text || typeof result.text !== 'string') return false;
+        
+        // Check embedding dimensions
+        if (result.embedding.length !== 384) return false;
+        
+        // Check for NaN values in embedding
+        if (result.embedding.some(val => isNaN(val))) return false;
+        
+        return true;
+    }
+    
+    /**
+     * Review and optimize cache patterns
+     * @private
+     */
+    _reviewCacheOptimization() {
+        const now = Date.now();
+        
+        if (now - this.adaptiveMetrics.lastOptimizationReview < this.adaptiveMetrics.optimizationInterval) {
+            return;
+        }
+        
+        logger.debug('Reviewing cache optimization patterns');
+        
+        // Analyze access patterns
+        const totalAccess = Array.from(this.adaptiveMetrics.cacheAccessPattern.values())
+            .reduce((sum, count) => sum + count, 0);
+            
+        if (totalAccess > 100) {
+            // Find most common patterns
+            const sortedPatterns = Array.from(this.adaptiveMetrics.cacheAccessPattern.entries())
+                .sort((a, b) => b[1] - a[1]);
+                
+            logger.info('Cache access pattern analysis', {
+                totalAccess,
+                mostCommonPattern: sortedPatterns[0],
+                patternCount: sortedPatterns.length
+            });
+            
+            // Suggest optimizations
+            if (this.queryCache.size > this.options.cacheSize * 0.9) {
+                logger.warn('Cache approaching capacity, consider increasing size', {
+                    currentSize: this.queryCache.size,
+                    maxSize: this.options.cacheSize
+                });
+            }
+        }
+        
+        this.adaptiveMetrics.lastOptimizationReview = now;
+    }
+    
+    /**
+     * Update query statistics with enhanced tracking
+     * @private
+     */
+    _updateQueryStats(query, optimizationTime, cacheHit, fallbackUsed = false) {
+        const queryHash = require('crypto').createHash('sha256').update(query).digest('hex').substring(0, 8);
+        
+        const stats = this.queryStats.get(queryHash) || {
+            count: 0,
+            totalOptimizationTime: 0,
+            cacheHits: 0,
+            fallbackUsed: 0,
+            lastSeen: Date.now()
+        };
+        
+        stats.count++;
+        stats.totalOptimizationTime += optimizationTime;
+        stats.lastSeen = Date.now();
+        if (cacheHit) stats.cacheHits++;
+        if (fallbackUsed) stats.fallbackUsed++;
+        
+        this.queryStats.set(queryHash, stats);
+    }
+    
+    /**
+     * Get enhanced optimization statistics
+     */
+    getStats() {
+        return {
+            cacheSize: this.queryCache.size,
+            semanticCacheSize: this.semanticCache.size,
+            fallbackEmbeddingsSize: this.fallbackEmbeddings.size,
+            cacheHitRate: this._calculateCacheHitRate(),
+            averageOptimizationTime: this._calculateAverageOptimizationTime(),
+            queryCount: this.queryStats.size,
+            errorStats: { ...this.errorStats },
+            adaptiveMetrics: {
+                accessPatternCount: this.adaptiveMetrics.cacheAccessPattern.size,
+                lastReview: new Date(this.adaptiveMetrics.lastOptimizationReview).toISOString()
+            }
+        };
+    }
+    
+    /**
      * Shutdown query optimizer
      */
     async shutdown() {
@@ -450,6 +908,8 @@ class QueryOptimizer {
         this.queryCache.clear();
         this.semanticCache.clear();
         this.queryStats.clear();
+        this.fallbackEmbeddings.clear();
+        this.adaptiveMetrics.cacheAccessPattern.clear();
         this.initialized = false;
         
         logger.info('QueryOptimizer shutdown complete');
