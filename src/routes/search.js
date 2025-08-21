@@ -4,7 +4,7 @@
 
 const express = require('express');
 const router = express.Router();
-const logger = require('../utils/logger');
+const { logger } = require('../utils/logger');
 const { validateSearchQuery } = require('../validators/searchValidator');
 
 /**
@@ -35,7 +35,7 @@ router.post('/', validateSearchQuery, async (req, res) => {
 
     // Log search metrics
     logger.info('Search completed', {
-      query: query.substring(0, 100), // Log first 100 chars
+      query: typeof query === 'string' ? query.substring(0, 100) : JSON.stringify(query), 
       resultsCount: searchResults.results.length,
       processingTime,
       k,
@@ -62,7 +62,7 @@ router.post('/', validateSearchQuery, async (req, res) => {
     logger.error('Search failed', {
       error: error.message,
       stack: error.stack,
-      query: req.body.query?.substring(0, 100),
+      query: typeof req.body.query === 'string' ? req.body.query.substring(0, 100) : JSON.stringify(req.body.query),
       processingTime
     });
 

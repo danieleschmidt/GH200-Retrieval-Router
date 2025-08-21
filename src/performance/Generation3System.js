@@ -880,7 +880,10 @@ class Generation3System extends EventEmitter {
     
     _generateCacheKey(queryVector) {
         // Generate a cache key from query vector
-        const hash = queryVector.slice(0, 10).reduce((sum, val) => sum + val, 0);
+        if (!Array.isArray(queryVector) || queryVector.length === 0) {
+            return `vec_${Math.random().toString(36).substring(7)}`;
+        }
+        const hash = queryVector.slice(0, Math.min(10, queryVector.length)).reduce((sum, val) => sum + val, 0);
         return `vec_${Math.abs(Math.floor(hash * 1000))}`;
     }
     
