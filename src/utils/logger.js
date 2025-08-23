@@ -248,10 +248,12 @@ class PerformanceLogger {
         this.metricsBuffer = [];
         this.correlationContext = correlationContext;
         
-        // Periodically flush metrics
-        this.metricsFlushInterval = setInterval(() => {
-            this.flushMetrics();
-        }, 30000); // Flush every 30 seconds
+        // Periodically flush metrics (only in production)
+        if (process.env.NODE_ENV !== 'test') {
+            this.metricsFlushInterval = setInterval(() => {
+                this.flushMetrics();
+            }, 30000); // Flush every 30 seconds
+        }
     }
     
     /**

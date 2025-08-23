@@ -149,6 +149,7 @@ const sanitizeInput = (req, res, next) => {
     // Remove potentially dangerous characters
     return str
       .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<[^>]*>/g, '')
       .replace(/javascript:/gi, '')
       .replace(/on\w+\s*=/gi, '')
       .trim();

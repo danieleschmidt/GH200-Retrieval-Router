@@ -132,21 +132,24 @@ class LoadBalancer extends EventEmitter {
                 selectedShard = this._weightedResponseTimeSelection(healthyShards);
                 routingDecision = { strategy: 'weighted_response_time', reason: 'performance_based' };
                 break;
-            case 'adaptive':
+            case 'adaptive': {
                 const adaptiveResult = this._adaptiveSelection(healthyShards, queryContext);
                 selectedShard = adaptiveResult.shard;
                 routingDecision = adaptiveResult.decision;
                 break;
-            case 'ml_based':
+            }
+            case 'ml_based': {
                 const mlResult = await this._mlBasedSelection(healthyShards, queryContext);
                 selectedShard = mlResult.shard;
                 routingDecision = mlResult.decision;
                 break;
-            case 'predictive':
+            }
+            case 'predictive': {
                 const predictiveResult = this._predictiveSelection(healthyShards, queryContext);
                 selectedShard = predictiveResult.shard;
                 routingDecision = predictiveResult.decision;
                 break;
+            }
             default:
                 selectedShard = this._adaptiveSelection(healthyShards, queryContext).shard;
                 routingDecision = { strategy: 'adaptive', reason: 'fallback_default' };

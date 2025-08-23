@@ -43,7 +43,7 @@ router.post('/', validateSearchQuery, async (req, res) => {
     });
 
     res.json({
-      query,
+      query, // This should be the sanitized query from req.body
       results: searchResults.results,
       totalResults: searchResults.total,
       processingTime,

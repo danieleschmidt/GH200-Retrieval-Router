@@ -3,78 +3,11 @@
  */
 
 const request = require('supertest');
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
+const { createApp } = require('../../src/server');
 
-// Mock the complex server creation for simpler testing
+// Use the actual server creation function for proper middleware testing
 async function createTestApp() {
-  const app = express();
-  
-  // Basic middleware
-  app.use(helmet());
-  app.use(cors());
-  app.use(express.json());
-  
-  // Mock system components
-  const mockRetrievalRouter = {
-    search: jest.fn().mockResolvedValue({ results: [], total: 0, method: 'mock' }),
-    batchSearch: jest.fn().mockResolvedValue([]),
-    hybridSearch: jest.fn().mockResolvedValue({ results: [], total: 0, method: 'hybrid' }),
-    retrieveAndGenerate: jest.fn().mockResolvedValue({ response: '', retrievedDocuments: [], citations: [] }),
-    shutdown: jest.fn().mockResolvedValue(true)
-  };
-  
-  const mockGraceMemoryManager = {
-    getStatus: jest.fn().mockResolvedValue({ totalMemory: 480e9, usedMemory: 100e9, freeMemory: 380e9 }),
-    healthCheck: jest.fn().mockResolvedValue({ healthy: true }),
-    isReady: jest.fn().mockResolvedValue(true)
-  };
-  
-  const mockVectorDatabase = {
-    getStatus: jest.fn().mockResolvedValue({ state: 'ready', vectorCount: 1000 }),
-    healthCheck: jest.fn().mockResolvedValue({ healthy: true }),
-    isReady: jest.fn().mockResolvedValue(true),
-    getStatistics: jest.fn().mockResolvedValue({ totalVectors: 1000, dimension: 512 })
-  };
-  
-  // Set app locals
-  app.locals.retrievalRouter = mockRetrievalRouter;
-  app.locals.graceMemoryManager = mockGraceMemoryManager;
-  app.locals.vectorDatabase = mockVectorDatabase;
-  
-  // Ping endpoint
-  app.get('/ping', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '0.1.0' });
-  });
-  
-  // Root endpoint  
-  app.get('/', (req, res) => {
-    res.json({
-      name: 'GH200 Retrieval Router',
-      description: 'High-bandwidth retrieval-augmented inference engine optimized for NVIDIA GH200 Grace Hopper Superchip',
-      version: '0.1.0',
-      api: { version: 'v1', baseUrl: '/api/v1' },
-      status: 'running',
-      timestamp: new Date().toISOString(),
-      system: { nodeVersion: process.version, platform: process.platform, uptime: process.uptime() }
-    });
-  });
-  
-  // Mount API routes
-  const apiRoutes = require('../../src/routes');
-  app.use('/api/v1', apiRoutes);
-  
-  // 404 handler
-  app.use((req, res) => {
-    res.status(404).json({
-      error: 'NOT_FOUND',
-      message: `Route ${req.method} ${req.path} not found`,
-      timestamp: new Date().toISOString()
-    });
-  });
-  
-  return app;
+  return await createApp();
 }
 
 describe('Server Integration Tests', () => {
@@ -276,8 +209,9 @@ describe('Server Integration Tests', () => {
         .get('/api/v1/health')
         .expect(200);
 
-      expect(response.headers['x-ratelimit-limit']).toBeDefined();
-      expect(response.headers['x-ratelimit-remaining']).toBeDefined();
+      // Check for standard rate limit headers (newer express-rate-limit format)
+      expect(response.headers['ratelimit-limit']).toBeDefined();
+      expect(response.headers['ratelimit-remaining']).toBeDefined();
     });
 
     test('should enforce rate limits', async () => {
@@ -287,7 +221,7 @@ describe('Server Integration Tests', () => {
         .get('/api/v1/health')
         .expect(200);
 
-      expect(parseInt(response.headers['x-ratelimit-remaining'])).toBeLessThan(1000);
+      expect(parseInt(response.headers['ratelimit-remaining'])).toBeLessThan(1000);
     });
   });
 
