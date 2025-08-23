@@ -231,18 +231,6 @@ class QueryOptimizer {
         }
     }
     
-    /**
-     * Get optimization statistics
-     */
-    getStats() {
-        return {
-            cacheSize: this.queryCache.size,
-            semanticCacheSize: this.semanticCache.size,
-            cacheHitRate: this._calculateCacheHitRate(),
-            averageOptimizationTime: this._calculateAverageOptimizationTime(),
-            queryCount: this.queryStats.size
-        };
-    }
     
     /**
      * Clear all caches
@@ -366,24 +354,6 @@ class QueryOptimizer {
             .substring(0, 16);
     }
     
-    /**
-     * Update query statistics
-     */
-    _updateQueryStats(query, optimizationTime, cacheHit) {
-        const queryHash = require('crypto').createHash('sha256').update(query).digest('hex').substring(0, 8);
-        
-        const stats = this.queryStats.get(queryHash) || {
-            count: 0,
-            totalOptimizationTime: 0,
-            cacheHits: 0
-        };
-        
-        stats.count++;
-        stats.totalOptimizationTime += optimizationTime;
-        if (cacheHit) stats.cacheHits++;
-        
-        this.queryStats.set(queryHash, stats);
-    }
     
     /**
      * Calculate cache hit rate
