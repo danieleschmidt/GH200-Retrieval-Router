@@ -46,7 +46,22 @@ class VectorDatabase extends EventEmitter {
             averageSearchLatency: 0,
             indexBuildTime: 0,
             memoryUsage: 0,
-            cacheHitRate: 0
+            cacheHitRate: 0,
+            realTimeIndexingQueue: 0,
+            generation1Metrics: {
+                gpuAccelerationActive: true,
+                graceMemoryUtilization: 0.3,
+                indexOptimizationLevel: 'basic'
+            }
+        };
+
+        // Generation 1: Real-time indexing capabilities
+        this.realTimeIndexing = {
+            enabled: true,
+            batchSize: config.realtimeIndexBatchSize || 1000,
+            flushIntervalMs: config.realtimeFlushInterval || 30000,
+            pendingVectors: [],
+            lastFlushTime: Date.now()
         };
         
         this.initialized = false;

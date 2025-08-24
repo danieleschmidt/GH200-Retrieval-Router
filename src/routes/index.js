@@ -10,6 +10,8 @@ const healthRoutes = require('./health');
 const searchRoutes = require('./search');
 const vectorRoutes = require('./vectors');
 const metricsRoutes = require('./metrics');
+const generation1Routes = require('./generation1-enhancements');
+const generation3Routes = require('./generation3-status');
 
 // API version and info
 router.get('/', (req, res) => {
@@ -22,7 +24,9 @@ router.get('/', (req, res) => {
       health: '/health',
       search: '/search',
       vectors: '/vectors',
-      metrics: '/metrics'
+      metrics: '/metrics',
+      generation1: '/generation1',
+      generation3: '/generation3'
     },
     documentation: 'https://github.com/terragon-labs/gh200-retrieval-router'
   });
@@ -33,5 +37,7 @@ router.use('/health', healthRoutes);
 router.use('/search', searchRoutes);
 router.use('/vectors', vectorRoutes);
 router.use('/metrics', metricsRoutes);
+router.use('/generation1', generation1Routes);
+router.use('/generation3', generation3Routes);
 
 module.exports = router;

@@ -4,7 +4,6 @@
  */
 
 const { logger } = require('./logger');
-const { initializeRouter } = require('../index');
 
 /**
  * Validate system startup with timeout and retries
@@ -13,20 +12,17 @@ const { initializeRouter } = require('../index');
  * @param {number} retries - Number of retries (default: 3)
  * @returns {Promise<Object>} Router instance or throws error
  */
-async function validateSystemStartup(config = {}, timeout = 60000, retries = 3) {
+async function validateSystemStartup(router, config = {}, timeout = 60000, retries = 3) {
     let lastError;
     
     for (let attempt = 1; attempt <= retries; attempt++) {
         logger.info(`System startup validation attempt ${attempt}/${retries}`);
         
         try {
-            // Initialize with timeout
-            const router = await Promise.race([
-                initializeRouter(config),
-                new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error(`Initialization timeout after ${timeout}ms`)), timeout);
-                })
-            ]);
+            // Validate provided router instance
+            if (!router) {
+                throw new Error('Router instance is required for validation');
+            }
             
             // Validate critical components
             const validationResults = await validateComponents(router);

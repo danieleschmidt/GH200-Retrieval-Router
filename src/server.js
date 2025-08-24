@@ -29,7 +29,7 @@ const {
 } = require('./middleware/validation');
 
 // System components
-const { validateSystemStartup, performPreflightChecks } = require('./utils/startup-validator');
+const { performPreflightChecks } = require('./utils/startup-validator');
 
 /**
  * Create and configure Express application
