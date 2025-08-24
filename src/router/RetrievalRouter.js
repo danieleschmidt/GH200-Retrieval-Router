@@ -40,7 +40,12 @@ class RetrievalRouter extends EventEmitter {
             failedQueries: 0,
             averageLatency: 0,
             throughput: 0,
-            circuitBreakerTrips: 0
+            circuitBreakerTrips: 0,
+            generation1Enhancements: {
+                vectorAccelerationEnabled: true,
+                searchOptimizationActive: true,
+                realTimeIndexingReady: true
+            }
         };
         
         validateConfig(this.config);

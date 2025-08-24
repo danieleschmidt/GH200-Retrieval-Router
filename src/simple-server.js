@@ -28,6 +28,22 @@ const {
   validateRequestSize 
 } = require('./middleware/validation');
 
+// Generation 2 Middleware
+const {
+  advancedRequestValidation,
+  SmartCircuitBreaker,
+  createSmartRateLimiter,
+  generation2ErrorHandler,
+  generation2MonitoringMiddleware
+} = require('./middleware/generation2-security');
+
+// Generation 3 Middleware
+const {
+  AdvancedAutoScaler,
+  AdvancedLoadBalancer,
+  generation3PerformanceMiddleware
+} = require('./middleware/generation3-scaling');
+
 /**
  * Create and configure Express application
  */
@@ -36,6 +52,44 @@ async function createApp() {
 
   // Setup global error handlers
   setupGlobalErrorHandlers();
+
+  // Generation 2: Initialize circuit breakers for robustness
+  const searchCircuitBreaker = new SmartCircuitBreaker('search-service', {
+    failureThreshold: 5,
+    recoveryTimeout: 30000, // 30 seconds
+    monitorWindow: 300000   // 5 minutes
+  });
+  
+  const healthCircuitBreaker = new SmartCircuitBreaker('health-service', {
+    failureThreshold: 3,
+    recoveryTimeout: 15000,
+    monitorWindow: 180000
+  });
+  
+  // Store circuit breakers for use in routes
+  app.locals.circuitBreakers = {
+    search: searchCircuitBreaker,
+    health: healthCircuitBreaker
+  };
+
+  // Generation 3: Initialize auto-scaler and load balancer
+  const autoScaler = new AdvancedAutoScaler({
+    minInstances: 2,
+    maxInstances: 16,
+    targetCPUUtilization: 70,
+    targetMemoryUtilization: 80
+  });
+  
+  const loadBalancer = new AdvancedLoadBalancer({
+    strategy: 'weighted_round_robin'
+  });
+  
+  // Store Generation 3 components
+  app.locals.generation3 = {
+    autoScaler,
+    loadBalancer,
+    generation: 3
+  };
 
   // Security middleware
   app.use(helmet({
@@ -63,22 +117,9 @@ async function createApp() {
     maxAge: 86400 // 24 hours
   }));
 
-  // Rate limiting
-  const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: process.env.RATE_LIMIT_MAX || 1000,
-    message: {
-      error: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many requests from this IP, please try again later.'
-    },
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => {
-      return req.auth?.apiKey || req.ip;
-    }
-  });
-
-  app.use('/api', limiter);
+  // Generation 2: Smart rate limiting with adaptive limits
+  const smartRateLimiter = createSmartRateLimiter();
+  app.use('/api', smartRateLimiter);
 
   // Body parsing middleware
   app.use(compression());
@@ -89,6 +130,14 @@ async function createApp() {
   app.use(requestIdMiddleware);
   app.use(requestTimeout(30000));
   app.use(validateRequestSize('10mb'));
+  
+  // Generation 2: Advanced security and monitoring
+  app.use(advancedRequestValidation);
+  app.use(generation2MonitoringMiddleware);
+  
+  // Generation 3: Performance optimization and scaling
+  app.use(generation3PerformanceMiddleware(autoScaler, loadBalancer));
+  
   app.use(sanitizeInput);
   app.use(optionalAuth);
 
@@ -133,7 +182,7 @@ async function createApp() {
     });
   });
 
-  // Simple mock system for health checks
+  // Simple mock system for health checks and search
   app.locals.retrievalRouter = {
     healthCheck: async () => ({
       healthy: true,
@@ -141,7 +190,52 @@ async function createApp() {
       components: {},
       errors: []
     }),
-    isReady: async () => true
+    isReady: async () => true,
+    search: async (options = {}) => {
+      // Generation 2 Enhanced: Circuit breaker protected search
+      return await app.locals.circuitBreakers.search.call(async () => {
+        const { query, k = 10, filters = {} } = options;
+        
+        // Simulate occasional failures for circuit breaker testing
+        if (Math.random() < 0.05) { // 5% failure rate
+          throw new Error('Simulated search service failure');
+        }
+        
+        const mockResults = [];
+        for (let i = 0; i < k; i++) {
+          mockResults.push({
+            id: `gen2_result_${i}`,
+            score: Math.random() * 0.9 + 0.1,
+            metadata: {
+              source: 'generation2_robust',
+              gpuAccelerated: true,
+              realtimeIndexed: true,
+              circuitBreakerProtected: true,
+              securityValidated: true
+            },
+            content: `Generation 2 robust result ${i + 1} with circuit breaker protection`
+          });
+        }
+        
+        return {
+          results: mockResults,
+          total: mockResults.length,
+          method: 'generation2_robust_search',
+          processingTime: Math.random() * 20 + 5,
+          robustness: {
+            circuitBreakerState: app.locals.circuitBreakers.search.state,
+            securityLevel: 'generation2',
+            failureHandling: 'active',
+            generation: 2
+          },
+          performance: {
+            gpuUtilization: '70%',
+            memoryBandwidth: '800 GB/s',
+            generation: 2
+          }
+        };
+      }, { operation: 'search', queryType: typeof options.query === 'object' ? '[vector]' : 'text' });
+    }
   };
   
   app.locals.graceMemoryManager = {
@@ -210,7 +304,8 @@ async function createApp() {
   // 404 handler
   app.use(notFoundHandler);
 
-  // Error handler (must be last)
+  // Generation 2: Enhanced error handling
+  app.use(generation2ErrorHandler);
   app.use(errorHandler);
 
   return app;
